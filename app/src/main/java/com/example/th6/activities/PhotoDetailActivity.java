@@ -199,7 +199,15 @@ public class PhotoDetailActivity extends AppCompatActivity {
     private void openEditor() {
         if (photo == null) return;
         if (isVideo(photo)) {
-            Uri source = resolveMediaUri(photo);
+            // Cloud rows retain the URI from the device that originally backed them up.
+            // That content:// URI is not portable, so use the cloud object when entering
+            // the editor for a cloud-backed video.
+            String cloudUrl = photo.getImageUrl();
+            boolean cloudBacked = photo.getOwnerUid() != null
+                    && !photo.getOwnerUid().isEmpty()
+                    && !"local".equals(photo.getOwnerUid());
+            Uri source = cloudBacked && cloudUrl != null && !cloudUrl.isEmpty()
+                    ? Uri.parse(cloudUrl) : resolveMediaUri(photo);
             if (source == null) {
                 Toast.makeText(this, "Không tìm thấy nguồn video", Toast.LENGTH_LONG).show();
                 return;

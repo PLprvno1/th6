@@ -141,12 +141,34 @@ public class LocalPhotoAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
         }
 
         if (photo.isVideo()) {
-            Glide.with(context).asBitmap().load(photo.getContentUri())
-                    .apply(RequestOptions.frameOf(1_000_000))
-                    .placeholder(R.drawable.ic_photo_placeholder)
-                    .error(R.drawable.ic_photo_placeholder)
-                    .centerCrop().into(photoHolder.imgPhoto);
+            String localSource = photo.getContentUri();
+            String cloudSource = photo.getCloudUrl();
+            if (localSource != null && !localSource.isEmpty()) {
+                photoHolder.imgPhoto.setTag(null);
+                Glide.with(context).asBitmap().load(localSource)
+                        .apply(RequestOptions.frameOf(1_000_000))
+                        .placeholder(R.drawable.ic_photo_placeholder)
+                        .error(R.drawable.ic_photo_placeholder)
+                        .centerCrop().into(photoHolder.imgPhoto);
+            } else if (cloudSource != null && !cloudSource.isEmpty()) {
+                // Glide's video-frame decoder handles local media URIs, but not a remote
+                // Storage URL. Extract a small frame off the UI thread for cloud-only videos.
+                Glide.with(context).clear(photoHolder.imgPhoto);
+                photoHolder.imgPhoto.setImageResource(R.drawable.ic_photo_placeholder);
+                photoHolder.imgPhoto.setTag(cloudSource);
+                com.example.th6.utils.VideoThumbnailLoader.load(cloudSource, bitmap -> {
+                    if (bitmap != null && cloudSource.equals(photoHolder.imgPhoto.getTag())) {
+                        photoHolder.imgPhoto.setImageBitmap(bitmap);
+                    }
+                });
+            } else {
+                photoHolder.imgPhoto.setTag(null);
+                Glide.with(context).load((Object) null)
+                        .placeholder(R.drawable.ic_photo_placeholder)
+                        .into(photoHolder.imgPhoto);
+            }
         } else {
+            photoHolder.imgPhoto.setTag(null);
             Object imageSource = photo.getContentUri() != null && !photo.getContentUri().isEmpty()
                     ? photo.getContentUri() : photo.getCloudUrl();
             Glide.with(context).load(imageSource)

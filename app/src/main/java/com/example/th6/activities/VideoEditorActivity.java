@@ -100,6 +100,8 @@ public class VideoEditorActivity extends AppCompatActivity {
     private final MutablePreviewRgbMatrix previewColorMatrix = new MutablePreviewRgbMatrix();
     private LocalMediaPhoto videoItem;
     private Uri videoUri;
+    private String activeVideoSource;
+    private boolean cloudFallbackAttempted;
     private Bitmap filterSourceBitmap;
     private long totalDurationMs;
     private long trimStartMs;
@@ -359,6 +361,8 @@ public class VideoEditorActivity extends AppCompatActivity {
     private void setupPlayer() {
         player = new ExoPlayer.Builder(this).build();
         binding.editorPlayerView.setPlayer(player);
+        activeVideoSource = videoUri == null ? null : videoUri.toString();
+        cloudFallbackAttempted = false;
         player.addListener(new Player.Listener() {
             @Override public void onPlaybackStateChanged(int playbackState) {
                 if (playbackState == Player.STATE_READY && !timelineInitialized) initializeTimeline();
@@ -371,6 +375,7 @@ public class VideoEditorActivity extends AppCompatActivity {
             }
 
             @Override public void onPlayerError(PlaybackException error) {
+                if (switchEditorToCloudSource()) return;
                 if (binding != null) binding.tvExportProgress.setText("Không thể phát video này.");
                 Toast.makeText(VideoEditorActivity.this, "Không thể tải hoặc phát video: " + error.getErrorCodeName(), Toast.LENGTH_LONG).show();
             }
@@ -383,6 +388,19 @@ public class VideoEditorActivity extends AppCompatActivity {
         player.setVideoEffects(Collections.singletonList(previewColorMatrix));
         player.prepare();
         mainHandler.post(playbackTicker);
+    }
+
+    private boolean switchEditorToCloudSource() {
+        String cloudUrl = videoItem == null ? null : videoItem.getCloudUrl();
+        if (cloudFallbackAttempted || cloudUrl == null || cloudUrl.isEmpty()
+                || cloudUrl.equals(activeVideoSource) || player == null) return false;
+        cloudFallbackAttempted = true;
+        activeVideoSource = cloudUrl;
+        videoUri = Uri.parse(cloudUrl);
+        timelineInitialized = false;
+        player.setMediaItem(MediaItem.fromUri(videoUri));
+        player.prepare();
+        return true;
     }
 
     private void initializeTimeline() {
@@ -417,7 +435,12 @@ public class VideoEditorActivity extends AppCompatActivity {
             Bitmap baseFrame = null;
             List<Bitmap> filterFrames = new ArrayList<>();
             try {
-                retriever.setDataSource(this, source);
+                String scheme = source.getScheme();
+                if ("http".equalsIgnoreCase(scheme) || "https".equalsIgnoreCase(scheme)) {
+                    retriever.setDataSource(source.toString(), Collections.emptyMap());
+                } else {
+                    retriever.setDataSource(this, source);
+                }
                 int count = (int) Math.max(4L, Math.min(12L, duration / 4000L));
                 for (int i = 0; i < count; i++) {
                     long timeUs = (long) ((i + .5d) * duration / count) * 1000L;
