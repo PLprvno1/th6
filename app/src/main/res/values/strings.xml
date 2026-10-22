@@ -1,0 +1,100 @@
+<resources>
+    <string name="app_name">PhotoVault</string>
+
+    <!-- Auth -->
+    <string name="title_login">Đăng nhập</string>
+    <string name="title_register">Đăng ký tài khoản</string>
+    <string name="title_forgot_password">Quên mật khẩu</string>
+    <string name="email">Email</string>
+    <string name="password">Mật khẩu</string>
+    <string name="confirm_password">Xác nhận mật khẩu</string>
+    <string name="full_name">Họ và tên</string>
+    <string name="btn_login">Đăng nhập</string>
+    <string name="btn_register">Đăng ký</string>
+    <string name="btn_send_reset">Gửi email đặt lại mật khẩu</string>
+    <string name="dont_have_account">Chưa có tài khoản? Đăng ký ngay</string>
+    <string name="already_have_account">Đã có tài khoản? Đăng nhập</string>
+    <string name="forgot_password">Quên mật khẩu?</string>
+    <string name="msg_login_success">Đăng nhập thành công!</string>
+    <string name="msg_register_success">Tạo tài khoản thành công!</string>
+    <string name="msg_password_reset_sent">Đã gửi email hướng dẫn đặt lại mật khẩu!</string>
+
+    <!-- Navigation Tabs -->
+    <string name="tab_library">Thư viện</string>
+    <string name="tab_albums">Album</string>
+    <plurals name="album_photo_count">
+        <item quantity="one">%d ảnh</item>
+        <item quantity="other">%d ảnh</item>
+    </plurals>
+    <string name="tab_trash">Thùng rác</string>
+    <string name="tab_favorites">Yêu thích</string>
+    <string name="tab_profile">Cá nhân</string>
+
+    <!-- Home / Library -->
+    <string name="greeting_hello">Xin chào,</string>
+    <string name="stat_photos">Ảnh</string>
+    <string name="stat_albums">Album</string>
+    <string name="stat_favorites">Yêu thích</string>
+    <string name="section_all_photos">Tất cả ảnh</string>
+    <string name="empty_photos">Chưa có ảnh nào. Nhấn nút + để tải lên ảnh đầu tiên!</string>
+    <string name="empty_favorites">Chưa có ảnh yêu thích nào.</string>
+    <string name="empty_albums">Chưa có album nào. Tạo album để sắp xếp ảnh!</string>
+    <string name="empty_trash">Thùng rác trống.</string>
+    <string name="btn_upload_photo">Thêm ảnh</string>
+
+    <!-- Menus -->
+    <string name="menu_search">Tìm kiếm</string>
+    <string name="menu_sort">Sắp xếp theo</string>
+    <string name="sort_date_desc">Ngày mới nhất</string>
+    <string name="sort_date_asc">Ngày cũ nhất</string>
+    <string name="sort_name_asc">Tên A – Z</string>
+    <string name="sort_name_desc">Tên Z – A</string>
+    <string name="menu_favorites">Ảnh yêu thích</string>
+    <string name="menu_profile">Hồ sơ cá nhân</string>
+    <string name="menu_settings">Cài đặt</string>
+    <string name="menu_logout">Đăng xuất</string>
+    <string name="menu_slideshow">Trình chiếu (Slideshow)</string>
+    <string name="menu_backup">Trung tâm sao lưu</string>
+
+    <!-- Context Menu & Trash -->
+    <string name="ctx_view_detail">Xem chi tiết</string>
+    <string name="ctx_add_favorite">Thêm vào yêu thích</string>
+    <string name="ctx_remove_favorite">Bỏ khỏi yêu thích</string>
+    <string name="ctx_add_to_album">Thêm vào album</string>
+    <string name="ctx_share">Chia sẻ</string>
+    <string name="ctx_move_trash">Chuyển vào thùng rác</string>
+    <string name="ctx_restore">Khôi phục ảnh</string>
+    <string name="ctx_delete_perm">Xóa khỏi PhotoVault</string>
+
+    <!-- Detail & Album -->
+    <string name="title_photo_detail">Chi tiết ảnh</string>
+    <string name="title_album_detail">Chi tiết Album</string>
+    <string name="photo_name">Tên ảnh</string>
+    <string name="uploaded_at">Đã tải lên:</string>
+    <string name="provider">Nguồn lưu trữ:</string>
+    <string name="btn_share">Chia sẻ</string>
+    <string name="btn_delete">Xóa</string>
+    <string name="btn_favorite">Yêu thích</string>
+
+    <!-- Profile & Settings -->
+    <string name="title_profile">Trang cá nhân</string>
+    <string name="title_settings">Cài đặt ứng dụng</string>
+    <string name="change_avatar">Đổi ảnh đại diện</string>
+    <string name="edit_name">Chỉnh sửa họ tên</string>
+    <string name="dark_mode">Giao diện tối (Dark Mode)</string>
+    <string name="app_info">Thông tin ứng dụng</string>
+    <string name="app_version">Phiên bản 1.0.0 (PhotoVault)</string>
+
+    <!-- Dialogs -->
+    <string name="confirm_logout">Bạn có chắc chắn muốn đăng xuất không?</string>
+    <string name="confirm_delete_photo">Bạn có chắc chắn muốn xóa ảnh này không?</string>
+    <string name="confirm_move_trash">Chuyển ảnh này vào thùng rác?</string>
+    <string name="confirm_delete_perm">Xóa metadata và mục này khỏi PhotoVault? Tệp đã sao lưu trên ImgBB không bị xóa bởi thao tác này.</string>
+    <string name="confirm_delete_album">Xóa album này sẽ không xóa các ảnh gốc trong thư viện. Bạn có muốn tiếp tục?</string>
+    <string name="create_album">Tạo Album mới</string>
+    <string name="album_name_hint">Tên album</string>
+    <string name="btn_create">Tạo</string>
+    <string name="btn_cancel">Hủy</string>
+    <string name="btn_save">Lưu</string>
+    <string name="btn_ok">Đồng ý</string>
+</resources>

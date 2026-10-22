@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="editor_background">#F5EFEB</color>
+    <color name="editor_surface">#FFFFFF</color>
+    <color name="editor_border">#E2D4CE</color>
+    <color name="editor_text_primary">#302327</color>
+    <color name="editor_text_secondary">#806F70</color>
+    <color name="editor_accent">#9F5967</color>
+    <color name="editor_selected">#F3E1E5</color>
+    <color name="editor_canvas">#181617</color>
+</resources>

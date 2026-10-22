@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark Mode Color Overrides for Rosewood Premium -->
+    <color name="primary">#E1A0AC</color>
+    <color name="primary_dark">#9F5967</color>
+    <color name="primary_light">#4A3039</color>
+    <color name="secondary">#E1A0AC</color>
+    <color name="accent">#E1A0AC</color>
+
+    <color name="bg_light">#201719</color>
+    <color name="surface_light">#302126</color>
+    <color name="surface_secondary_light">#38272D</color>
+    <color name="text_primary_light">#F7E9EC</color>
+    <color name="text_secondary_light">#C0AEB2</color>
+    <color name="border_light">#4B333A</color>
+    <color name="card_stroke_light">#4B333A</color>
+    <color name="gray_200">#493239</color>
+    <color name="gray_500">#C0AEB2</color>
+
+    <!-- Semantic Names -->
+    <color name="text_primary">#F7E9EC</color>
+    <color name="text_secondary">#C0AEB2</color>
+    <color name="card_stroke">#4B333A</color>
+    <color name="input_bg">#38272D</color>
+
+    <color name="success">#65D6A7</color>
+    <color name="warning">#F5BC69</color>
+    <color name="error">#FF777D</color>
+</resources>

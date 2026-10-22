@@ -1,0 +1,42 @@
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <style name="Base.Theme.Th6" parent="Theme.Material3.DayNight.NoActionBar">
+        <!-- Rosewood Premium Dark Palette -->
+        <item name="colorPrimary">@color/rosewood_primary_dark</item>
+        <item name="colorOnPrimary">@color/rosewood_bg_dark</item>
+        <item name="colorPrimaryContainer">@color/rosewood_selected_bg_dark</item>
+        <item name="colorOnPrimaryContainer">@color/rosewood_primary_dark</item>
+        <item name="colorSecondary">@color/rosewood_primary_dark</item>
+        <item name="colorOnSecondary">@color/rosewood_bg_dark</item>
+        <item name="colorSecondaryContainer">@color/rosewood_selected_bg_dark</item>
+        <item name="colorOnSecondaryContainer">@color/rosewood_primary_dark</item>
+
+        <item name="android:colorBackground">@color/rosewood_bg_dark</item>
+        <item name="colorSurface">@color/rosewood_surface_dark</item>
+        <item name="colorOnSurface">@color/rosewood_text_primary_dark</item>
+        <item name="colorOnSurfaceVariant">@color/rosewood_text_secondary_dark</item>
+
+        <item name="android:statusBarColor">@color/rosewood_bg_dark</item>
+        <item name="android:windowLightStatusBar">false</item>
+
+        <!-- Bottom Navigation View Style -->
+        <item name="bottomNavigationStyle">@style/Widget.App.BottomNavigationView</item>
+
+        <!-- Enable Shared Element Transitions -->
+        <item name="android:windowActivityTransitions">true</item>
+        <item name="android:windowAllowEnterTransitionOverlap">true</item>
+        <item name="android:windowAllowReturnTransitionOverlap">true</item>
+    </style>
+
+    <style name="Widget.App.BottomNavigationView" parent="Widget.Material3.BottomNavigationView">
+        <item name="elevation">4dp</item>
+        <item name="backgroundTint">@color/rosewood_surface_dark</item>
+        <item name="itemIconTint">@color/bottom_nav_item_color</item>
+        <item name="itemTextColor">@color/bottom_nav_item_color</item>
+        <item name="itemRippleColor">@color/rosewood_selected_bg_dark</item>
+        <item name="itemActiveIndicatorStyle">@style/Widget.App.BottomNavigationView.ActiveIndicator</item>
+    </style>
+
+    <style name="Widget.App.BottomNavigationView.ActiveIndicator" parent="Widget.Material3.BottomNavigationView.ActiveIndicator">
+        <item name="android:color">@color/rosewood_selected_bg_dark</item>
+    </style>
+</resources>

@@ -1,0 +1,764 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/editor_background"
+    android:fitsSystemWindows="true">
+
+    <!-- Top Toolbar -->
+    <LinearLayout
+        android:id="@+id/topBar"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:background="@color/editor_background"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingHorizontal="16dp">
+
+        <ImageButton
+            android:id="@+id/btnCancel"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/app_name"
+            android:src="@drawable/ic_back"
+            app:tint="@color/editor_text_primary" />
+
+        <TextView
+            android:id="@+id/tvEditorTitle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:layout_weight="1"
+            android:text="Chỉnh sửa ảnh"
+            android:textColor="@color/editor_text_primary"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnUndo"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Hoàn tác"
+            android:textColor="@color/editor_accent" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnRedo"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Làm lại"
+            android:textColor="@color/editor_accent" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnDone"
+            style="@style/Widget.Material3.Button"
+            android:layout_width="wrap_content"
+            android:layout_height="40dp"
+            android:layout_marginStart="4dp"
+            android:minWidth="64dp"
+            android:text="Xong"
+            android:textColor="@color/editor_surface"
+            app:backgroundTint="@color/editor_accent"
+            app:cornerRadius="20dp" />
+
+    </LinearLayout>
+
+    <!-- Bottom Actions & Sub-Panels Container -->
+    <LinearLayout
+        android:id="@+id/bottomControlsContainer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_alignParentBottom="true"
+        android:background="@color/editor_surface"
+        android:orientation="vertical"
+        android:elevation="8dp"
+        android:paddingStart="12dp"
+        android:paddingTop="8dp"
+        android:paddingEnd="12dp"
+        android:paddingBottom="12dp">
+
+        <!-- Tool Selection Tabs -->
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:scrollbars="none">
+
+            <com.google.android.material.chip.ChipGroup
+                android:id="@+id/chipGroupTools"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                app:singleSelection="true">
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chipToolCrop"
+                    style="@style/Widget.Material3.Chip.Filter"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Cắt tự do"
+                    app:chipIcon="@drawable/ic_crop" />
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chipToolDraw"
+                    style="@style/Widget.Material3.Chip.Filter"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Bút vẽ"
+                    app:chipIcon="@drawable/ic_edit" />
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chipToolRotate"
+                    style="@style/Widget.Material3.Chip.Filter"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Xoay &amp; Lật"
+                    app:chipIcon="@drawable/ic_rotate" />
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chipToolAdjust"
+                    style="@style/Widget.Material3.Chip.Filter"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Điều chỉnh"
+                    app:chipIcon="@drawable/ic_tune" />
+
+                <com.google.android.material.chip.Chip
+                    android:id="@+id/chipToolFilter"
+                    style="@style/Widget.Material3.Chip.Filter"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Bộ lọc"
+                    app:chipIcon="@drawable/ic_filter" />
+
+            </com.google.android.material.chip.ChipGroup>
+
+        </HorizontalScrollView>
+
+        <!-- Sub-panel: Crop Ratios & Apply -->
+        <LinearLayout
+            android:id="@+id/panelCrop"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <HorizontalScrollView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:scrollbars="none">
+
+                <com.google.android.material.chip.ChipGroup
+                    android:id="@+id/chipGroupCropRatios"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    app:singleSelection="true">
+
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/cropFree"
+                        style="@style/Widget.Material3.Chip.Filter"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:checked="true"
+                        android:text="Tự do" />
+
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/crop11"
+                        style="@style/Widget.Material3.Chip.Filter"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="1:1" />
+
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/crop43"
+                        style="@style/Widget.Material3.Chip.Filter"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="4:3" />
+
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/crop34"
+                        style="@style/Widget.Material3.Chip.Filter"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="3:4" />
+
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/crop169"
+                        style="@style/Widget.Material3.Chip.Filter"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="16:9" />
+
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/crop916"
+                        style="@style/Widget.Material3.Chip.Filter"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="9:16" />
+
+                </com.google.android.material.chip.ChipGroup>
+
+            </HorizontalScrollView>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnApplyCrop"
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:layout_marginTop="8dp"
+                android:text="Xác nhận cắt"
+                app:cornerRadius="12dp" />
+
+        </LinearLayout>
+
+        <!-- Sub-panel: Pen Drawing Controls -->
+        <LinearLayout
+            android:id="@+id/panelDraw"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <HorizontalScrollView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:scrollbars="none">
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <ImageButton
+                        android:id="@+id/colorRed"
+                        android:layout_width="32dp"
+                        android:layout_height="32dp"
+                        android:background="@drawable/bg_avatar_circle"
+                        android:backgroundTint="#EF4444"
+                        android:contentDescription="@string/app_name" />
+
+                    <ImageButton
+                        android:id="@+id/colorYellow"
+                        android:layout_width="32dp"
+                        android:layout_height="32dp"
+                        android:layout_marginStart="8dp"
+                        android:background="@drawable/bg_avatar_circle"
+                        android:backgroundTint="#EAB308"
+                        android:contentDescription="@string/app_name" />
+
+                    <ImageButton
+                        android:id="@+id/colorGreen"
+                        android:layout_width="32dp"
+                        android:layout_height="32dp"
+                        android:layout_marginStart="8dp"
+                        android:background="@drawable/bg_avatar_circle"
+                        android:backgroundTint="#22C55E"
+                        android:contentDescription="@string/app_name" />
+
+                    <ImageButton
+                        android:id="@+id/colorBlue"
+                        android:layout_width="32dp"
+                        android:layout_height="32dp"
+                        android:layout_marginStart="8dp"
+                        android:background="@drawable/bg_avatar_circle"
+                        android:backgroundTint="#3B82F6"
+                        android:contentDescription="@string/app_name" />
+
+                    <ImageButton
+                        android:id="@+id/colorWhite"
+                        android:layout_width="32dp"
+                        android:layout_height="32dp"
+                        android:layout_marginStart="8dp"
+                        android:background="@drawable/bg_avatar_circle"
+                        android:backgroundTint="#FFFFFF"
+                        android:contentDescription="@string/app_name" />
+
+                    <ImageButton
+                        android:id="@+id/colorBlack"
+                        android:layout_width="32dp"
+                        android:layout_height="32dp"
+                        android:layout_marginStart="8dp"
+                        android:background="@drawable/bg_avatar_circle"
+                        android:backgroundTint="#000000"
+                        android:contentDescription="@string/app_name" />
+
+                    <ImageButton
+                        android:id="@+id/colorRosewood"
+                        android:layout_width="32dp"
+                        android:layout_height="32dp"
+                        android:layout_marginStart="8dp"
+                        android:background="@drawable/bg_avatar_circle"
+                        android:backgroundTint="#9F5967"
+                        android:contentDescription="@string/app_name" />
+
+                </LinearLayout>
+
+            </HorizontalScrollView>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Nét vẽ"
+                    android:textColor="@color/editor_text_secondary"
+                    android:textSize="12sp" />
+
+                <SeekBar
+                    android:id="@+id/sbPenWidth"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:max="50"
+                    android:progress="12" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnPenUndo"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:text="Xóa nét"
+                    android:textSize="11sp"
+                    app:cornerRadius="12dp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnPenErase"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:layout_marginStart="6dp"
+                    android:text="Tẩy"
+                    android:textSize="11sp"
+                    app:cornerRadius="12dp" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnPenClear"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:layout_marginStart="6dp"
+                    android:text="Xóa lớp vẽ"
+                    android:textSize="11sp"
+                    app:cornerRadius="12dp" />
+
+            </LinearLayout>
+
+        </LinearLayout>
+
+        <!-- Sub-panel: Rotate & Flip -->
+        <LinearLayout
+            android:id="@+id/panelRotate"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:gravity="center"
+            android:orientation="horizontal"
+            android:visibility="gone">
+
+            <ImageButton
+                android:id="@+id/btnRotateLeft"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/app_name"
+                android:src="@drawable/ic_rotate"
+                app:tint="@color/editor_accent" />
+
+            <ImageButton
+                android:id="@+id/btnRotateRight"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:layout_marginStart="16dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/app_name"
+                android:rotationY="180"
+                android:src="@drawable/ic_rotate"
+                app:tint="@color/editor_accent" />
+
+            <ImageButton
+                android:id="@+id/btnFlipHorizontal"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:layout_marginStart="16dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/app_name"
+                android:src="@drawable/ic_flip"
+                app:tint="@color/editor_accent" />
+
+            <ImageButton
+                android:id="@+id/btnFlipVertical"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:layout_marginStart="8dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Lật dọc"
+                android:rotation="90"
+                android:src="@drawable/ic_flip"
+                app:tint="@color/editor_accent" />
+
+        </LinearLayout>
+
+        <!-- Sub-panel: Advanced Adjust Sliders (Scrollable) -->
+        <ScrollView
+            android:id="@+id/panelAdjust"
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/editor_adjust_panel_height"
+            android:layout_marginTop="12dp"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnResetAll"
+                    style="@style/Widget.Material3.Button.TextButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="32dp"
+                    android:layout_gravity="end"
+                    android:text="Đặt lại tất cả"
+                    android:textColor="@color/editor_accent"
+                    android:textSize="11sp" />
+
+                <RelativeLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content">
+
+                    <TextView
+                        android:id="@+id/tvExposureLabel"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Phơi sáng (Exposure): 0.0 EV"
+                        android:textColor="@color/editor_text_secondary"
+                        android:textSize="12sp" />
+
+                </RelativeLayout>
+
+                <SeekBar
+                    android:id="@+id/sbExposure"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:max="600"
+                    android:progress="300" />
+
+                <TextView
+                    android:id="@+id/tvBrightnessLabel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="Độ sáng (Brightness): 0"
+                    android:textColor="@color/editor_text_secondary"
+                    android:textSize="12sp" />
+
+                <SeekBar
+                    android:id="@+id/sbBrightness"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:max="200"
+                    android:progress="100" />
+
+                <TextView
+                    android:id="@+id/tvHighlightsLabel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="Vùng sáng (Highlights): 0"
+                    android:textColor="@color/editor_text_secondary"
+                    android:textSize="12sp" />
+
+                <SeekBar
+                    android:id="@+id/sbHighlights"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:max="200"
+                    android:progress="100" />
+
+                <TextView
+                    android:id="@+id/tvShadowsLabel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="Vùng tối (Shadows): 0"
+                    android:textColor="@color/editor_text_secondary"
+                    android:textSize="12sp" />
+
+                <SeekBar
+                    android:id="@+id/sbShadows"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:max="200"
+                    android:progress="100" />
+
+                <TextView
+                    android:id="@+id/tvContrastLabel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="Độ tương phản (Contrast): 1.0"
+                    android:textColor="@color/editor_text_secondary"
+                    android:textSize="12sp" />
+
+                <SeekBar
+                    android:id="@+id/sbContrast"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:max="200"
+                    android:progress="100" />
+
+                <TextView
+                    android:id="@+id/tvSaturationLabel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="Độ bão hòa (Saturation): 1.0"
+                    android:textColor="@color/editor_text_secondary"
+                    android:textSize="12sp" />
+
+                <SeekBar
+                    android:id="@+id/sbSaturation"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:max="200"
+                    android:progress="100" />
+
+                <TextView
+                    android:id="@+id/tvTemperatureLabel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="Nhiệt độ màu (Temperature): 0"
+                    android:textColor="@color/editor_text_secondary"
+                    android:textSize="12sp" />
+
+                <SeekBar
+                    android:id="@+id/sbTemperature"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:max="200"
+                    android:progress="100" />
+
+                <TextView
+                    android:id="@+id/tvTintLabel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="Sắc độ (Tint): 0"
+                    android:textColor="@color/editor_text_secondary"
+                    android:textSize="12sp" />
+
+                <SeekBar
+                    android:id="@+id/sbTint"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:max="200"
+                    android:progress="100" />
+
+            </LinearLayout>
+
+        </ScrollView>
+
+        <!-- Sub-panel: Filters -->
+        <LinearLayout
+            android:id="@+id/panelFilter"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <HorizontalScrollView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:scrollbars="none">
+
+                <com.google.android.material.chip.ChipGroup
+                    android:id="@+id/chipGroupFilters"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    app:singleSelection="true">
+
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/filterOriginal"
+                        style="@style/Widget.Material3.Chip.Filter"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Gốc" />
+
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/filterVivid"
+                        style="@style/Widget.Material3.Chip.Filter"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Sống động (Vivid)" />
+
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/filterWarm"
+                        style="@style/Widget.Material3.Chip.Filter"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Tông ấm (Warm)" />
+
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/filterCool"
+                        style="@style/Widget.Material3.Chip.Filter"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Tông lạnh (Cool)" />
+
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/filterGrayscale"
+                        style="@style/Widget.Material3.Chip.Filter"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Trắng đen" />
+
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/filterSepia"
+                        style="@style/Widget.Material3.Chip.Filter"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Sepia" />
+
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/filterFade"
+                        style="@style/Widget.Material3.Chip.Filter"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Fade" />
+
+                </com.google.android.material.chip.ChipGroup>
+
+            </HorizontalScrollView>
+
+            <TextView
+                android:id="@+id/tvFilterIntensity"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Cường độ bộ lọc · 100%"
+                android:textColor="@color/editor_text_secondary"
+                android:textSize="12sp" />
+
+            <SeekBar
+                android:id="@+id/sbFilterIntensity"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:max="100"
+                android:progress="100" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnResetFilter"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:text="Đặt lại bộ lọc"
+                android:textColor="@color/editor_accent" />
+
+        </LinearLayout>
+
+        <!-- Save Options Buttons -->
+        <LinearLayout
+            android:id="@+id/layoutSaveOptions"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnSaveCopy"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+            android:textColor="@color/editor_surface"
+            app:backgroundTint="@color/editor_accent"
+                android:text="Lưu bản sao"
+                android:textSize="13sp"
+                app:cornerRadius="12dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnOverwrite"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+            android:textColor="@color/editor_accent"
+            app:strokeColor="@color/editor_border"
+                android:text="Ghi đè ảnh gốc"
+                android:textSize="13sp"
+                app:cornerRadius="12dp" />
+
+        </LinearLayout>
+
+    </LinearLayout>
+
+    <!-- Main Image Preview Container -->
+    <FrameLayout
+        android:id="@+id/previewContainer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_above="@+id/bottomControlsContainer"
+        android:layout_below="@+id/topBar"
+        android:background="@color/editor_canvas"
+        android:padding="12dp">
+
+        <ImageView
+            android:id="@+id/imgEditPreview"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:contentDescription="@string/app_name"
+            android:scaleType="fitCenter" />
+
+        <!-- Drawing Overlay View -->
+        <com.example.th6.views.DrawingOverlayView
+            android:id="@+id/drawingOverlay"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone" />
+
+        <!-- Crop Overlay View -->
+        <com.example.th6.views.CropOverlayView
+            android:id="@+id/cropOverlay"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnCompare"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:layout_gravity="top|end"
+            android:text="Ảnh gốc"
+            android:textSize="12sp"
+            app:cornerRadius="18dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnFit"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:layout_gravity="top|start"
+            android:text="Vừa khung"
+            android:textSize="12sp"
+            app:cornerRadius="18dp" />
+
+        <ProgressBar
+            android:id="@+id/progressBar"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:visibility="gone" />
+
+    </FrameLayout>
+
+</RelativeLayout>

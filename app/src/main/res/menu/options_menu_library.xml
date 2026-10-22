@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <item
+        android:id="@+id/action_slideshow"
+        android:icon="@drawable/ic_dark_mode"
+        android:title="@string/menu_slideshow"
+        app:showAsAction="ifRoom" />
+
+    <item
+        android:id="@+id/action_backup"
+        android:icon="@drawable/ic_library"
+        android:title="@string/menu_backup"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_search"
+        android:icon="@drawable/ic_search"
+        android:title="@string/menu_search"
+        app:showAsAction="ifRoom" />
+
+    <!-- SubMenu for Sorting -->
+    <item
+        android:id="@+id/action_sort"
+        android:icon="@drawable/ic_sort"
+        android:title="@string/menu_sort"
+        app:showAsAction="ifRoom">
+        <menu>
+            <item
+                android:id="@+id/sort_date_desc"
+                android:title="@string/sort_date_desc" />
+            <item
+                android:id="@+id/sort_date_asc"
+                android:title="@string/sort_date_asc" />
+            <item
+                android:id="@+id/sort_name_asc"
+                android:title="@string/sort_name_asc" />
+            <item
+                android:id="@+id/sort_name_desc"
+                android:title="@string/sort_name_desc" />
+        </menu>
+    </item>
+
+    <item
+        android:id="@+id/action_favorites"
+        android:icon="@drawable/ic_favorite"
+        android:title="@string/menu_favorites"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_profile"
+        android:icon="@drawable/ic_profile"
+        android:title="@string/menu_profile"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_settings"
+        android:icon="@drawable/ic_settings"
+        android:title="@string/menu_settings"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_logout"
+        android:icon="@drawable/ic_logout"
+        android:title="@string/menu_logout"
+        app:showAsAction="never" />
+
+</menu>

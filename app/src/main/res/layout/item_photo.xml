@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/cardPhoto"
+    android:layout_width="match_parent"
+    android:layout_height="100dp"
+    android:layout_margin="1dp"
+    android:clickable="true"
+    android:focusable="true"
+    app:cardCornerRadius="2dp"
+    app:cardElevation="0dp"
+    app:strokeWidth="0dp">
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <ImageView
+            android:id="@+id/imgPhoto"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:contentDescription="@string/app_name"
+            android:scaleType="centerCrop"
+            android:src="@drawable/ic_photo_placeholder" />
+
+        <!-- Kept for the adapter's existing binding; this gallery design does not display names. -->
+        <TextView
+            android:id="@+id/tvPhotoName"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:visibility="gone" />
+
+        <!-- Video Play Overlay Icon -->
+        <ImageView
+            android:id="@+id/imgPlayIcon"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:layout_gravity="center"
+            android:contentDescription="@string/app_name"
+            android:src="@drawable/ic_play"
+            android:visibility="gone"
+            app:tint="#FFFFFF" />
+
+        <TextView
+            android:id="@+id/tvSelectionCheck"
+            android:layout_width="26dp"
+            android:layout_height="26dp"
+            android:layout_gravity="top|start"
+            android:layout_margin="6dp"
+            android:background="@drawable/bg_selection_check"
+            android:gravity="center"
+            android:text="✓"
+            android:textColor="@android:color/white"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
+
+        <!-- Video Duration Badge -->
+        <TextView
+            android:id="@+id/tvDuration"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|end"
+            android:layout_margin="4dp"
+            android:background="#88000000"
+            android:paddingHorizontal="4dp"
+            android:paddingVertical="2dp"
+            android:textColor="#FFFFFF"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
+
+        <!-- Favorite heart button -->
+        <ImageButton
+            android:id="@+id/btnFavorite"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:layout_gravity="top|end"
+            android:layout_margin="4dp"
+            android:background="#66000000"
+            android:contentDescription="@string/btn_favorite"
+            android:padding="5dp"
+            android:src="@drawable/ic_favorite_border"
+            app:tint="#FFFFFF" />
+
+    </FrameLayout>
+
+</com.google.android.material.card.MaterialCardView>
