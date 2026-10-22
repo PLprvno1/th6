@@ -44,11 +44,29 @@
             android:textStyle="bold" />
 
         <ImageButton
+            android:id="@+id/btnFavorite"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Yêu thích video"
+            android:src="@drawable/ic_favorite_border"
+            app:tint="#FFFFFF" />
+
+        <ImageButton
+            android:id="@+id/btnVideoInfo"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Thông tin video"
+            android:src="@android:drawable/ic_menu_info_details"
+            app:tint="#FFFFFF" />
+
+        <ImageButton
             android:id="@+id/btnEditVideo"
             android:layout_width="40dp"
             android:layout_height="40dp"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/edit_name"
+            android:contentDescription="@string/edit_video"
             android:src="@drawable/ic_edit"
             app:tint="#FFFFFF" />
 

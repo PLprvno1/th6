@@ -11,4 +11,15 @@
         android:layout_gravity="center"
         android:contentDescription="Ảnh trong thư viện"
         android:scaleType="centerCrop" />
+
+    <ImageView
+        android:id="@+id/imgVideoPlayBadge"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:layout_gravity="center"
+        android:background="@drawable/bg_thumbnail_play_badge"
+        android:padding="5dp"
+        android:src="@drawable/ic_play"
+        android:tint="#FFFFFFFF"
+        android:visibility="gone" />
 </FrameLayout>

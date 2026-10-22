@@ -2,58 +2,47 @@ package com.example.th6.activities;
 
 import android.os.Bundle;
 import android.text.TextUtils;
+import android.util.Patterns;
 import android.view.View;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.lifecycle.ViewModelProvider;
 
 import com.example.th6.databinding.ActivityForgotPasswordBinding;
-import com.google.firebase.auth.FirebaseAuth;
+import com.example.th6.viewmodels.PasswordRecoveryViewModel;
 
 public class ForgotPasswordActivity extends AppCompatActivity {
-
     private ActivityForgotPasswordBinding binding;
-    private FirebaseAuth mAuth;
+    private PasswordRecoveryViewModel viewModel;
 
-    @Override
-    protected void onCreate(Bundle savedInstanceState) {
+    @Override protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         binding = ActivityForgotPasswordBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
-
-        mAuth = FirebaseAuth.getInstance();
-
+        viewModel = new ViewModelProvider(this).get(PasswordRecoveryViewModel.class);
+        setLoading(viewModel.getRequestInFlight());
         binding.btnSendReset.setOnClickListener(v -> sendResetEmail());
         binding.tvBackToLogin.setOnClickListener(v -> finish());
     }
 
     private void sendResetEmail() {
-        String email = binding.etEmail.getText() != null ? binding.etEmail.getText().toString().trim() : "";
-
-        if (TextUtils.isEmpty(email)) {
-            binding.tilEmail.setError("Vui lòng nhập Email");
+        String email = binding.etEmail.getText() == null ? "" : binding.etEmail.getText().toString().trim();
+        if (TextUtils.isEmpty(email) || !Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
+            binding.tilEmail.setError("Vui lòng nhập email hợp lệ");
             return;
-        } else {
-            binding.tilEmail.setError(null);
         }
-
+        binding.tilEmail.setError(null);
         setLoading(true);
-
-        mAuth.sendPasswordResetEmail(email)
-                .addOnCompleteListener(task -> {
-                    setLoading(false);
-                    if (task.isSuccessful()) {
-                        Toast.makeText(ForgotPasswordActivity.this, "Đã gửi email hướng dẫn đặt lại mật khẩu. Vui lòng kiểm tra hộp thư!", Toast.LENGTH_LONG).show();
-                        finish();
-                    } else {
-                        String errMsg = task.getException() != null ? task.getException().getMessage() : "Gửi thất bại";
-                        Toast.makeText(ForgotPasswordActivity.this, "Lỗi: " + errMsg, Toast.LENGTH_LONG).show();
-                    }
-                });
+        viewModel.send(email, (success, message) -> {
+            setLoading(false);
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show();
+            if (success) finish();
+        });
     }
 
-    private void setLoading(boolean isLoading) {
-        binding.progressBar.setVisibility(isLoading ? View.VISIBLE : View.GONE);
-        binding.btnSendReset.setEnabled(!isLoading);
+    private void setLoading(boolean loading) {
+        binding.progressBar.setVisibility(loading ? View.VISIBLE : View.GONE);
+        binding.btnSendReset.setEnabled(!loading);
     }
 }

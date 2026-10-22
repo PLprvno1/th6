@@ -4,24 +4,18 @@
     <color name="rosewood_primary">#9F5967</color>
     <color name="rosewood_bg_light">#F5EFEB</color>
     <color name="rosewood_surface_light">#FFFFFF</color>
-    <color name="rosewood_border_light">#E2D4CE</color>
     <color name="rosewood_text_primary_light">#302327</color>
     <color name="rosewood_text_secondary_light">#806F70</color>
     <color name="rosewood_selected_bg_light">#F3E1E5</color>
-    <color name="rosewood_divider_light">#E9DEDA</color>
-    <color name="rosewood_input_bg_light">#FBF8F6</color>
     <color name="rosewood_icon_default_light">#806F70</color>
 
     <!-- Rosewood Premium Dark Palette -->
     <color name="rosewood_primary_dark">#E1A0AC</color>
     <color name="rosewood_bg_dark">#201719</color>
     <color name="rosewood_surface_dark">#302126</color>
-    <color name="rosewood_border_dark">#4B333A</color>
     <color name="rosewood_text_primary_dark">#F7E9EC</color>
     <color name="rosewood_text_secondary_dark">#C0AEB2</color>
     <color name="rosewood_selected_bg_dark">#4A3039</color>
-    <color name="rosewood_divider_dark">#493239</color>
-    <color name="rosewood_input_bg_dark">#38272D</color>
     <color name="rosewood_icon_default_dark">#C0AEB2</color>
 
     <!-- Unified Color References -->
@@ -47,19 +41,9 @@
     <color name="card_stroke">#E2D4CE</color>
     <color name="input_bg">#FBF8F6</color>
 
-    <color name="bg_dark">#201719</color>
-    <color name="surface_dark">#302126</color>
-    <color name="surface_elevated_dark">#38272D</color>
-    <color name="primary_dark_theme">#E1A0AC</color>
-    <color name="secondary_dark_theme">#E1A0AC</color>
-    <color name="text_primary_dark">#F7E9EC</color>
-    <color name="text_secondary_dark">#C0AEB2</color>
-    <color name="border_dark">#4B333A</color>
-
     <color name="success">#168A63</color>
     <color name="warning">#D97706</color>
     <color name="error">#E5484D</color>
     <color name="favorite_red">#E5484D</color>
     <color name="overlay">#99201719</color>
-    <color name="transparent">#00000000</color>
 </resources>

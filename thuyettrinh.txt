@@ -1,0 +1,88 @@
+KỊCH BẢN THUYẾT TRÌNH PHOTOVAULT (KHOẢNG 8–9 PHÚT)
+
+Ghi chú: Phần trong ngoặc vuông là gợi ý thao tác trên màn hình, không cần đọc thành tiếng. Nội dung dưới đây mô tả các cơ chế đã thấy trong source hiện tại; không khẳng định tính năng hoặc độ chính xác ngoài phạm vi đó.
+
+1. MỞ ĐẦU — 0:00–0:45
+
+Em xin chào thầy/cô. Hôm nay em xin giới thiệu PhotoVault, một ứng dụng Android quản lý thư viện ảnh và video, có các luồng xem, chỉnh sửa, dọn ảnh trùng và sao lưu lên cloud. Điểm em muốn nhấn mạnh là ứng dụng không chỉ có giao diện thao tác, mà mỗi tính năng đều có một luồng dữ liệu cụ thể: lấy media từ Android MediaStore, xử lý ảnh/video trên thiết bị, rồi lưu metadata hoặc tệp lên Supabase khi cần.
+
+Trong phần trình bày này, em tập trung vào sáu nội dung: kiến trúc thư viện, chỉnh sửa ảnh, quét trùng, backup cloud, chỉnh sửa video, và trình chiếu/phát video. Em cũng sẽ nói rõ đâu là thư viện bên ngoài và đâu là logic do project tự triển khai.
+
+2. KIẾN TRÚC VÀ NGUỒN MEDIA — 0:45–1:35
+
+Ứng dụng được viết bằng Java và Kotlin trên Android. Các màn hình được tổ chức theo Activity và Fragment; dữ liệu đi qua model và repository. Thư viện trên máy được truy vấn từ MediaStore của Android, sau đó tạo thành URI dạng content:// để những màn hình khác có thể đọc cùng media mà không cần tự sao chép toàn bộ file.
+
+Việc quét được đẩy khỏi giao diện chính. DevicePhotoScanner truy vấn ảnh và video, lấy tên, MIME type, kích thước, kích thước khung hình, ngày và thời lượng video. Kết quả được sắp xếp theo thời điểm chụp hoặc thời điểm thêm. Glide được dùng để tải ảnh và thumbnail vào các ô danh sách; nó là thư viện hiển thị/tải ảnh, không phải bộ xử lý chỉnh sửa.
+
+Với dữ liệu cloud, PhotoRepository làm việc với metadata qua Supabase PostgREST, còn StorageRepository tải tệp lên Supabase Storage. Vì vậy cần phân biệt metadata của một ảnh, như tên và URL, với bytes thực tế của ảnh nằm trong Storage.
+
+3. CHỈNH SỬA ẢNH — 1:35–2:55
+
+[Mở màn hình chỉnh sửa ảnh; minh họa một điều chỉnh và thao tác lưu.]
+
+PhotoVault không dựa vào một thư viện chỉnh ảnh thương mại để thực hiện các hiệu ứng chính. Phần xử lý được viết trong BitmapEditor bằng Android Bitmap, Canvas và phép tính màu trên từng pixel. Các thông số như sáng, tương phản, bão hòa, phơi sáng, vùng sáng, vùng tối và nhiệt độ màu được lưu trong AdjustmentSettings. Bộ lọc là một tập giá trị điều chỉnh được áp dụng lên ảnh.
+
+Ngoài màu sắc, luồng chỉnh sửa có các phép xoay, lật, crop, vẽ và tẩy nét vẽ. Vùng crop và nét vẽ được biểu diễn theo tọa độ chuẩn hóa để có thể giữ vị trí tương đối giữa ảnh xem trước và ảnh gốc. Trạng thái thao tác được giữ trong PhotoEditState để hỗ trợ undo/redo và dựng lại kết quả.
+
+Glide hỗ trợ nạp ảnh xem trước với kích thước phù hợp giao diện. Khi lưu, ứng dụng dựng kết quả từ ảnh nguồn ở độ phân giải gốc trên luồng nền, rồi ImageSaveUtils ghi vào MediaStore. Người dùng có thể lưu bản mới hoặc cập nhật ảnh hiện có; Android có thể yêu cầu quyền ghi đối với media không thuộc ứng dụng. Cách tách preview và export giúp giao diện đỡ phải xử lý ảnh lớn ngay trên main thread, nhưng ảnh độ phân giải cao vẫn cần quản lý bộ nhớ cẩn thận.
+
+4. QUÉT ẢNH TRÙNG VÀ DỌN DẸP — 2:55–4:20
+
+[Mở Smart Cleanup, giải thích nhóm ảnh và bước xác nhận trước khi chuyển vào thùng rác.]
+
+Smart Cleanup kết hợp ảnh local với metadata ảnh cloud của tài khoản. Đây là thuật toán tự triển khai trên CPU, không dùng ML Kit hay mô hình AI. Với trùng khớp chính xác, scanner đọc nội dung theo luồng và tính SHA-256; bộ đệm nhỏ được dùng lặp lại nên không cần nạp nguyên file vào RAM. Hai tệp chỉ được coi là giống hệt khi digest trùng nhau.
+
+Để tìm ảnh gần giống, ảnh được giải mã ở kích thước giảm, chuyển về đặc trưng xám; SmartCleanupImageAnalyzer tính perceptual hash kiểu DCT và so thêm SSIM về độ tương đồng độ sáng/cấu trúc. Scanner dùng các band hash để lọc cặp ứng viên trước, có giới hạn số phép so sánh nhằm giữ thời gian xử lý trong mức kiểm soát. Do đó kết quả “gần giống” là phân loại theo ngưỡng thuật toán, không phải cam kết hai ảnh hoàn toàn giống nhau. Với video, màn hình có nhóm video dung lượng lớn/không xác định; không nên nói video được so nội dung khung hình như ảnh.
+
+Một điểm an toàn quan trọng là scanner chỉ đề xuất. Người dùng chọn mục, xem xác nhận, rồi ứng dụng kiểm tra lại URI/phiên bản file local hoặc tải lại metadata cloud trước khi chuyển mục đã chọn vào Trash. Nó không tự động xóa file ngay khi phát hiện. Phần này cho thấy vì sao cần xác minh lại: ảnh có thể đã bị đổi, xóa, mất quyền đọc hoặc cloud đã thay đổi sau lần quét.
+
+5. SAO LƯU LÊN CLOUD — 4:20–5:45
+
+[Mở Backup Center, nêu khác biệt giữa trạng thái chờ và đã backup.]
+
+Backup dùng WorkManager để thực hiện công việc nền có thể tiếp tục sau khi Activity đóng. BackupWorkScheduler tạo tác vụ định kỳ theo tài khoản, hiện đặt chu kỳ sáu giờ, và có thể áp dụng điều kiện mạng phù hợp với lựa chọn Wi‑Fi. Yêu cầu chạy ngay cũng được đưa vào work queue; tên tác vụ riêng theo UID giúp tránh trộn hàng đợi giữa các tài khoản.
+
+PhotoBackupManager quét media thiết bị và so với metadata cloud, URI/id local, ngày sửa đổi và hash khi có. BackupUploadLedger là SQLite cục bộ dùng ghi nhận trường hợp tệp đã tải lên nhưng metadata chưa hoàn tất, để lần chạy sau có thể tiếp tục thay vì tải lại một cách mù quáng. Worker kiểm tra đăng nhập và UID trong lúc chạy, kiểm tra quyền đọc, trạng thái tạm dừng, tiến độ và retry khi lỗi mạng. Nó tải tuần tự và giới hạn thời gian mỗi lần chạy.
+
+StorageRepository dùng Supabase Storage SDK để upload content URI; việc truyền file dùng API URI/streaming thay vì chủ động gom cả video vào một byte array. Source hiện giới hạn một media ở mức 50 MiB. Khi upload xong, ứng dụng ghi metadata như URL và liên kết local vào bảng photos qua PhotoRepository. Supabase Auth cung cấp session; chính sách RLS ở schema trong repository dự định giới hạn dữ liệu theo người dùng, nhưng source không thể chứng minh cấu hình đang chạy trên dự án Supabase live. Em sẽ không gọi 1 GB là quota chính thức của Supabase; nếu giao diện hiển thị mức đó thì đó chỉ là quy ước sản phẩm.
+
+6. CHỈNH SỬA VIDEO — 5:45–7:10
+
+[Mở Video Editor; minh họa seek, chọn filter, trim hoặc mute.]
+
+Phần phát và preview video dùng AndroidX Media3 ExoPlayer. Các thanh điều chỉnh cập nhật hiệu ứng xem trước; project có một hiệu ứng màu preview có thể thay đổi tham số, tránh tạo lại toàn bộ pipeline ở mỗi lần kéo thanh. Dải timeline lấy một số frame thumbnail bằng MediaMetadataRetriever chạy trên executor nền; đây chỉ là thumbnail để định vị, còn phát video do ExoPlayer đảm nhiệm.
+
+Các thao tác gồm cắt đầu/cuối, mute âm thanh, bộ lọc và điều chỉnh sáng/tương phản/bão hòa/phơi sáng/vùng sáng-vùng tối/nhiệt độ màu. Khi xuất, VideoSaveUtils tạo Media3 EditedMediaItem với clipping và Effects, sau đó dùng Media3 Transformer encode ra tệp MP4. “Xuất video mới” ghi một mục mới vào MediaStore. “Lưu đè” chỉ áp dụng với video local có quyền ghi: ứng dụng dựng file thay thế trước, giữ bản khôi phục, kiểm tra file đầu ra rồi mới ghi vào URI gốc; nếu ghi lỗi thì cố gắng phục hồi. Video cloud không thể ghi đè trực tiếp qua MediaStore của thiết bị nên cần xuất thành bản local.
+
+Preview và file export đi qua các pipeline khác nhau của Media3, nên chất lượng màu và khả năng encode còn phụ thuộc thiết bị, codec và cấu hình hiệu ứng. Đây là lý do cần kiểm tra cả preview lẫn file xuất trên máy thật, không chỉ dựa vào thumbnail.
+
+7. TRÌNH CHIẾU ẢNH VÀ PHÁT VIDEO — 7:10–8:00
+
+[Mở slideshow rồi chuyển sang một video trong thư viện.]
+
+Trình chiếu hiện tại dành cho ảnh tĩnh. SlideshowActivity nhận danh sách Photo, dùng Handler trên main looper để chuyển ảnh theo chu kỳ ba giây, hỗ trợ chạy/tạm dừng, tới/lùi và bộ đếm. Glide nạp ảnh qua URL/nguồn ảnh vào ImageView. Activity dừng callback khi tạm rời màn hình để không tiếp tục đổi slide trong nền.
+
+Video hiện được phát trong VideoPlayerActivity bằng Media3 ExoPlayer; player chuẩn bị MediaItem từ URI local và giải phóng tài nguyên khi Activity kết thúc. Vì vậy, mô tả chính xác là PhotoVault có slideshow ảnh và trình phát video riêng; source hiện tại chưa thể hiện một slideshow tự trộn ảnh với video.
+
+8. KẾT — 8:00–8:25
+
+Tóm lại, các điểm kỹ thuật chính của PhotoVault là: MediaStore làm nguồn media trên thiết bị; Bitmap/Canvas và logic riêng để chỉnh ảnh; SHA‑256 cộng perceptual hash/SSIM cho tìm trùng; WorkManager kết hợp Supabase Auth, PostgREST và Storage cho backup; Media3 cho preview, playback và export video; Glide cho tải ảnh và thumbnail.
+
+Em xin kết thúc phần trình bày. Nếu thầy/cô muốn đi sâu, em có thể mở trực tiếp các lớp scanner, repository và utility tương ứng để giải thích từng bước xử lý.
+
+GỢI Ý CÂU HỎI GIÁM KHẢO
+
+1. SHA‑256 khác perceptual hash thế nào?
+SHA‑256 nhận biết nội dung byte giống hệt; đổi kích thước hoặc nén lại thường làm hash khác. Perceptual hash mô tả đặc trưng thị giác nên có thể tìm ảnh gần nhau; vì thế code còn đối chiếu SSIM và dùng ngưỡng, nhưng vẫn có thể nhầm.
+
+2. Vì sao không chạy toàn bộ việc này trên main thread?
+Truy vấn thư viện, đọc file, decode bitmap, tính hash và encode video đều có thể tốn I/O/CPU. Chúng được thực hiện qua executor, coroutine hoặc WorkManager tùy luồng; UI nhận trạng thái/kết quả để cập nhật.
+
+3. Backup lưu những gì ở đâu?
+Bytes media được tải lên Storage; metadata và liên kết media được lưu trong bảng photos. Ledger SQLite chỉ là trạng thái phục hồi cục bộ cho upload, không thay thế cloud database.
+
+4. Ứng dụng có dùng AI để nhận diện ảnh trùng không?
+Không. Luồng hiện tại dùng SHA‑256, DCT perceptual hash và SSIM viết trong project; đây là xử lý ảnh xác định theo thuật toán/ngưỡng, không phải mô hình học máy.
+
+5. Slideshow có phát video giữa các ảnh không?
+Không theo code hiện tại. SlideshowActivity duyệt danh sách ảnh tĩnh; phát video là luồng riêng dùng Media3 ExoPlayer.

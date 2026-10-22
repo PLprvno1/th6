@@ -14,6 +14,7 @@ import android.util.Log;
 import com.example.th6.models.LocalMediaPhoto;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
@@ -45,7 +46,7 @@ public class DevicePhotoScanner {
                 List<LocalMediaPhoto> media = new ArrayList<>();
                 scanCollection(resolver, getExternalCollectionUri(false), false, media, imagesOnly);
                 if (!imagesOnly) scanCollection(resolver, getExternalCollectionUri(true), true, media, false);
-                Collections.sort(media, (a, b) -> Long.compare(b.getDateModified(), a.getDateModified()));
+                Collections.sort(media, (a, b) -> Long.compare(b.getTimelineTimestamp(), a.getTimelineTimestamp()));
                 mainHandler.post(() -> {
                     if (callback != null) callback.onScanComplete(media);
                 });
@@ -70,6 +71,10 @@ public class DevicePhotoScanner {
                     MediaStore.Images.Media.WIDTH, MediaStore.Images.Media.HEIGHT,
                     MediaStore.Images.Media.DATE_TAKEN, MediaStore.Images.Media.DATE_ADDED,
                     MediaStore.Images.Media.DATE_MODIFIED};
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            projection = Arrays.copyOf(projection, projection.length + 1);
+            projection[projection.length - 1] = MediaStore.MediaColumns.IS_PENDING;
+        }
         int itemCount = 0;
         try (Cursor cursor = resolver.query(collection, projection, null, null, null)) {
             if (cursor == null) {
@@ -83,18 +88,22 @@ public class DevicePhotoScanner {
             int sizeCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.SIZE);
             int widthCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.WIDTH);
             int heightCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.HEIGHT);
-            int takenCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_TAKEN);
+            int takenCol = cursor.getColumnIndex(MediaStore.Images.Media.DATE_TAKEN);
             int addedCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_ADDED);
             int modifiedCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DATE_MODIFIED);
+            int pendingCol = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+                    ? cursor.getColumnIndex(MediaStore.MediaColumns.IS_PENDING) : -1;
             int durationCol = video ? cursor.getColumnIndexOrThrow(MediaStore.Video.Media.DURATION) : -1;
 
             while (cursor.moveToNext()) {
+                if (pendingCol >= 0 && cursor.getInt(pendingCol) != 0) continue;
                 long id = cursor.getLong(idCol);
-                long timestamp = getTimestamp(cursor, takenCol, addedCol, modifiedCol);
+                long timestamp = getModifiedTimestamp(cursor, modifiedCol);
                 Uri contentUri = ContentUris.withAppendedId(collection, id);
                 LocalMediaPhoto item = new LocalMediaPhoto(id, contentUri.toString(),
                         cursor.getString(nameCol), cursor.getString(mimeCol), cursor.getLong(sizeCol),
                         cursor.getInt(widthCol), cursor.getInt(heightCol), timestamp);
+                item.setDateTaken(getCaptureTimestamp(cursor, takenCol, addedCol, modifiedCol));
                 item.setVideo(video);
                 if (video && durationCol >= 0) item.setDurationMs(Math.max(0, cursor.getLong(durationCol)));
                 result.add(item);
@@ -119,8 +128,15 @@ public class DevicePhotoScanner {
         return video ? MediaStore.Video.Media.EXTERNAL_CONTENT_URI : MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
     }
 
-    private long getTimestamp(Cursor cursor, int takenCol, int addedCol, int modifiedCol) {
-        long taken = cursor.getLong(takenCol);
+    private long getModifiedTimestamp(Cursor cursor, int modifiedCol) {
+        long modified = cursor.getLong(modifiedCol);
+        // This value is persisted as local_date_modified and used for change detection.
+        // DATE_TAKEN/DATE_ADDED describe capture/import time and are not safe revision signals.
+        return modified > 0 ? modified * 1000L : 0L;
+    }
+
+    private long getCaptureTimestamp(Cursor cursor, int takenCol, int addedCol, int modifiedCol) {
+        long taken = takenCol >= 0 ? cursor.getLong(takenCol) : 0L;
         if (taken > 0) return taken;
         long added = cursor.getLong(addedCol);
         if (added > 0) return added * 1000L;

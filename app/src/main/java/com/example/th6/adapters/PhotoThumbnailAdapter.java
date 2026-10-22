@@ -7,6 +7,7 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageView;
+import android.net.Uri;
 
 import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
@@ -55,11 +56,28 @@ public class PhotoThumbnailAdapter extends RecyclerView.Adapter<PhotoThumbnailAd
 
     @Override public void onBindViewHolder(@NonNull Holder holder, int position) {
         Photo photo = photos.get(position);
-        String url = photo.getDisplayUrl() != null && !photo.getDisplayUrl().isEmpty()
+        boolean video = "video".equalsIgnoreCase(photo.getMediaType());
+        holder.playBadge.setVisibility(video ? View.VISIBLE : View.GONE);
+        String localUri = photo.getLocalMediaUri();
+        String url = localUri != null && !localUri.isEmpty() ? localUri
+                : photo.getDisplayUrl() != null && !photo.getDisplayUrl().isEmpty()
                 ? photo.getDisplayUrl() : photo.getImageUrl();
-        Glide.with(holder.image).load(url).override(120, 120).centerCrop()
-                .placeholder(R.drawable.ic_photo_placeholder).error(R.drawable.ic_photo_placeholder)
-                .into(holder.image);
+        if (video && url != null && !url.isEmpty()
+                && ("content".equalsIgnoreCase(Uri.parse(url).getScheme())
+                || "file".equalsIgnoreCase(Uri.parse(url).getScheme()))) {
+            Glide.with(holder.image).asBitmap().load(url).apply(com.bumptech.glide.request.RequestOptions
+                            .frameOf(1_000_000).override(120, 120))
+                    .centerCrop().placeholder(R.drawable.ic_photo_placeholder)
+                    .error(R.drawable.ic_photo_placeholder).into(holder.image);
+        } else if (video) {
+            // Do not fetch an entire remote video just to produce a small thumbnail.
+            Glide.with(holder.image).clear(holder.image);
+            holder.image.setImageResource(R.drawable.ic_photo_placeholder);
+        } else {
+            Glide.with(holder.image).load(url).override(120, 120).centerCrop()
+                    .placeholder(R.drawable.ic_photo_placeholder).error(R.drawable.ic_photo_placeholder)
+                    .into(holder.image);
+        }
         GradientDrawable border = new GradientDrawable();
         border.setColor(Color.TRANSPARENT);
         border.setCornerRadius(dp(3));
@@ -67,8 +85,11 @@ public class PhotoThumbnailAdapter extends RecyclerView.Adapter<PhotoThumbnailAd
         holder.image.setBackground(border);
         holder.image.setPadding(dp(position == selectedPosition ? 2 : 0), dp(position == selectedPosition ? 2 : 0),
                 dp(position == selectedPosition ? 2 : 0), dp(position == selectedPosition ? 2 : 0));
-        holder.itemView.setContentDescription(photo.getName() == null ? "Ảnh" : photo.getName());
-        holder.itemView.setOnClickListener(v -> listener.onPhotoSelected(holder.getBindingAdapterPosition()));
+        holder.itemView.setContentDescription((video ? "Video: " : "Ảnh: ") + (photo.getName() == null ? "Media" : photo.getName()));
+        holder.itemView.setOnClickListener(v -> {
+            int currentPosition = holder.getBindingAdapterPosition();
+            if (currentPosition != RecyclerView.NO_POSITION) listener.onPhotoSelected(currentPosition);
+        });
     }
 
     private int dp(float value) { return Math.round(value * context.getResources().getDisplayMetrics().density); }
@@ -76,6 +97,11 @@ public class PhotoThumbnailAdapter extends RecyclerView.Adapter<PhotoThumbnailAd
 
     static class Holder extends RecyclerView.ViewHolder {
         final ImageView image;
-        Holder(@NonNull View itemView) { super(itemView); image = itemView.findViewById(R.id.imgThumbnail); }
+        final ImageView playBadge;
+        Holder(@NonNull View itemView) {
+            super(itemView);
+            image = itemView.findViewById(R.id.imgThumbnail);
+            playBadge = itemView.findViewById(R.id.imgVideoPlayBadge);
+        }
     }
 }

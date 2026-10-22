@@ -65,9 +65,9 @@ public class LocalPhotoAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
             for (int i = 0; i < photoList.size(); i++) {
                 LocalMediaPhoto photo = photoList.get(i);
                 if (viewMode != PhotoTimelineUtils.VIEW_MODE_ALL) {
-                    String key = PhotoTimelineUtils.getGroupKey(photo.getDateModified(), viewMode);
+                    String key = PhotoTimelineUtils.getGroupKey(photo.getTimelineTimestamp(), viewMode);
                     if (!key.equals(previousKey)) {
-                        rows.add(Row.header(PhotoTimelineUtils.getGroupLabel(photo.getDateModified(), viewMode)));
+                        rows.add(Row.header(PhotoTimelineUtils.getGroupLabel(photo.getTimelineTimestamp(), viewMode)));
                         previousKey = key;
                     }
                 }

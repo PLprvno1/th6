@@ -49,6 +49,15 @@ public class PhotoInfoBottomSheetDialog extends BottomSheetDialogFragment {
             binding.tvInfoName.setText(photo.getName());
             binding.tvInfoDate.setText(DateFormatter.formatTimestamp(photo.getCreatedAt()));
             binding.tvInfoUrl.setText(photo.getImageUrl());
+            boolean local = photo.getLocalMediaUri() != null && !photo.getLocalMediaUri().isEmpty();
+            String provider = photo.getStorageProvider();
+            boolean cloud = photo.getStoragePath() != null && !photo.getStoragePath().isEmpty()
+                    && ("supabase".equalsIgnoreCase(provider) || "imgbb".equalsIgnoreCase(provider));
+            String cloudName = "supabase".equalsIgnoreCase(provider) ? "Supabase Cloud"
+                    : "imgbb".equalsIgnoreCase(provider) ? "ImgBB Cloud" : null;
+            String source = local && cloud && cloudName != null ? "Thiết bị + " + cloudName
+                    : local ? "Thiết bị" : cloudName != null && cloud ? cloudName : "Không xác định";
+            binding.tvInfoProvider.setText(source);
         }
 
         binding.btnCloseInfo.setOnClickListener(v -> dismiss());

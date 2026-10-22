@@ -1,94 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:layout_width="match_parent"
-    android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:padding="24dp">
-
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Thông tin ảnh"
-        android:textColor="?attr/colorPrimary"
-        android:textSize="20sp"
-        android:textStyle="bold" />
-
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:layout_marginVertical="16dp"
-        android:background="@color/border_light" />
-
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Tên ảnh"
-        android:textColor="@color/text_secondary_light"
-        android:textSize="12sp" />
-
-    <TextView
-        android:id="@+id/tvInfoName"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:textColor="@color/text_primary_light"
-        android:textSize="16sp"
-        android:textStyle="bold" />
-
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:text="Thời gian tải lên"
-        android:textColor="@color/text_secondary_light"
-        android:textSize="12sp" />
-
-    <TextView
-        android:id="@+id/tvInfoDate"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:textColor="@color/text_primary_light"
-        android:textSize="15sp" />
-
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:text="Nguồn lưu trữ"
-        android:textColor="@color/text_secondary_light"
-        android:textSize="12sp" />
-
-    <TextView
-        android:id="@+id/tvInfoProvider"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="ImgBB Cloud Storage"
-        android:textColor="?attr/colorPrimary"
-        android:textSize="15sp"
-        android:textStyle="bold" />
-
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:text="URL ImgBB"
-        android:textColor="@color/text_secondary_light"
-        android:textSize="12sp" />
-
-    <TextView
-        android:id="@+id/tvInfoUrl"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:autoLink="web"
-        android:textColor="@color/primary"
-        android:textSize="13sp" />
-
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/btnCloseInfo"
-        android:layout_width="match_parent"
-        android:layout_height="48dp"
-        android:layout_marginTop="24dp"
-        android:text="@string/btn_ok"
-        app:cornerRadius="12dp" />
-
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="24dp">
+ <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Thông tin ảnh" android:textColor="?attr/colorPrimary" android:textSize="20sp" android:textStyle="bold"/>
+ <View android:layout_width="match_parent" android:layout_height="1dp" android:layout_marginVertical="16dp" android:background="@color/border_light"/>
+ <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Tên ảnh" android:textColor="@color/text_secondary_light" android:textSize="12sp"/>
+ <TextView android:id="@+id/tvInfoName" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="@color/text_primary_light" android:textSize="16sp" android:textStyle="bold"/>
+ <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Thời gian tải lên" android:textColor="@color/text_secondary_light" android:textSize="12sp"/>
+ <TextView android:id="@+id/tvInfoDate" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="@color/text_primary_light" android:textSize="15sp"/>
+ <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Nguồn lưu trữ" android:textColor="@color/text_secondary_light" android:textSize="12sp"/>
+ <TextView android:id="@+id/tvInfoProvider" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Không xác định" android:textColor="?attr/colorPrimary" android:textSize="15sp" android:textStyle="bold"/>
+ <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Liên kết media" android:textColor="@color/text_secondary_light" android:textSize="12sp"/>
+ <TextView android:id="@+id/tvInfoUrl" android:layout_width="match_parent" android:layout_height="wrap_content" android:autoLink="web" android:textColor="@color/primary" android:textSize="13sp"/>
+ <com.google.android.material.button.MaterialButton android:id="@+id/btnCloseInfo" android:layout_width="match_parent" android:layout_height="48dp" android:layout_marginTop="24dp" android:text="@string/btn_ok" app:cornerRadius="12dp"/>
 </LinearLayout>

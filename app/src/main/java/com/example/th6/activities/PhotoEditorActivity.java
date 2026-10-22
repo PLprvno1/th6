@@ -8,6 +8,9 @@ import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.BitmapDrawable;
+import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.InsetDrawable;
+import android.graphics.drawable.LayerDrawable;
 import android.app.PendingIntent;
 import android.content.Intent;
 import android.content.IntentSender;
@@ -20,6 +23,7 @@ import android.view.MotionEvent;
 import android.view.ScaleGestureDetector;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.SeekBar;
@@ -58,6 +62,8 @@ import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public class PhotoEditorActivity extends AppCompatActivity {
+
+    public static final String EXTRA_PHOTO = "photo";
 
     private ActivityPhotoEditorBinding binding;
     private Uri imageUri;
@@ -107,10 +113,12 @@ public class PhotoEditorActivity extends AppCompatActivity {
         binding = ActivityPhotoEditorBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
 
-        if (getIntent().hasExtra("photo")) {
-            Photo photo = (Photo) getIntent().getSerializableExtra("photo");
-            if (photo != null && photo.getImageUrl() != null) {
-                imageUri = Uri.parse(photo.getImageUrl());
+        if (getIntent().hasExtra(EXTRA_PHOTO)) {
+            Photo photo = (Photo) getIntent().getSerializableExtra(EXTRA_PHOTO);
+            if (photo != null) {
+                String source = photo.getLocalMediaUri() != null && !photo.getLocalMediaUri().isEmpty()
+                        ? photo.getLocalMediaUri() : photo.getImageUrl();
+                if (source != null && !source.isEmpty()) imageUri = Uri.parse(source);
             }
         } else if (getIntent().hasExtra("image_uri")) {
             imageUri = Uri.parse(getIntent().getStringExtra("image_uri"));
@@ -129,7 +137,6 @@ public class PhotoEditorActivity extends AppCompatActivity {
         setupPreviewGestures();
         loadImageBitmap();
     }
-
     private void setupUI() {
         binding.tvEditorTitle.setText("Chỉnh sửa");
         binding.btnUndo.setText("Hoàn tác");
@@ -248,13 +255,7 @@ public class PhotoEditorActivity extends AppCompatActivity {
         binding.btnApplyCrop.setOnClickListener(v -> executeCrop());
 
         // Drawing Pen Tools
-        binding.colorRed.setOnClickListener(v -> binding.drawingOverlay.setPenColor(Color.parseColor("#EF4444")));
-        binding.colorYellow.setOnClickListener(v -> binding.drawingOverlay.setPenColor(Color.parseColor("#EAB308")));
-        binding.colorGreen.setOnClickListener(v -> binding.drawingOverlay.setPenColor(Color.parseColor("#22C55E")));
-        binding.colorBlue.setOnClickListener(v -> binding.drawingOverlay.setPenColor(Color.parseColor("#3B82F6")));
-        binding.colorWhite.setOnClickListener(v -> binding.drawingOverlay.setPenColor(Color.WHITE));
-        binding.colorBlack.setOnClickListener(v -> binding.drawingOverlay.setPenColor(Color.BLACK));
-        binding.colorRosewood.setOnClickListener(v -> binding.drawingOverlay.setPenColor(Color.parseColor("#9F5967")));
+        setupPenColorSelectors();
 
         binding.sbPenWidth.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
@@ -489,6 +490,63 @@ public class PhotoEditorActivity extends AppCompatActivity {
         // Save Options
         binding.btnSaveCopy.setOnClickListener(v -> saveCopy());
         binding.btnOverwrite.setOnClickListener(v -> confirmOverwrite());
+    }
+
+    private void setupPenColorSelectors() {
+        bindPenColor(binding.colorRed, Color.parseColor("#EF4444"), "Màu đỏ");
+        bindPenColor(binding.colorYellow, Color.parseColor("#EAB308"), "Màu vàng");
+        bindPenColor(binding.colorGreen, Color.parseColor("#22C55E"), "Màu xanh lá");
+        bindPenColor(binding.colorBlue, Color.parseColor("#3B82F6"), "Màu xanh dương");
+        bindPenColor(binding.colorWhite, Color.WHITE, "Màu trắng");
+        bindPenColor(binding.colorBlack, Color.BLACK, "Màu đen");
+        bindPenColor(binding.colorRosewood, Color.parseColor("#9F5967"), "Màu hồng gỗ");
+        highlightPenColor(binding.colorRed);
+    }
+
+    private void bindPenColor(ImageButton button, int color, String description) {
+        button.setContentDescription(description);
+        button.setOnClickListener(v -> {
+            binding.drawingOverlay.setPenColor(color);
+            highlightPenColor(button);
+        });
+    }
+
+    private void highlightPenColor(ImageButton selectedButton) {
+        ImageButton[] buttons = {
+                binding.colorRed, binding.colorYellow, binding.colorGreen, binding.colorBlue,
+                binding.colorWhite, binding.colorBlack, binding.colorRosewood
+        };
+        int[] colors = {
+                Color.parseColor("#EF4444"), Color.parseColor("#EAB308"), Color.parseColor("#22C55E"),
+                Color.parseColor("#3B82F6"), Color.WHITE, Color.BLACK, Color.parseColor("#9F5967")
+        };
+        int accent = ContextCompat.getColor(this, R.color.editor_accent);
+        int surface = ContextCompat.getColor(this, R.color.editor_surface);
+        int border = ContextCompat.getColor(this, R.color.editor_border);
+        int inset = Math.round(4f * getResources().getDisplayMetrics().density);
+        int stroke = Math.max(1, Math.round(2f * getResources().getDisplayMetrics().density));
+
+        for (int i = 0; i < buttons.length; i++) {
+            ImageButton button = buttons[i];
+            GradientDrawable swatch = new GradientDrawable();
+            swatch.setShape(GradientDrawable.OVAL);
+            swatch.setColor(colors[i]);
+            button.setBackgroundTintList(null);
+            boolean selected = button == selectedButton;
+            if (selected) {
+                GradientDrawable ring = new GradientDrawable();
+                ring.setShape(GradientDrawable.OVAL);
+                ring.setColor(surface);
+                ring.setStroke(stroke, accent);
+                button.setBackground(new LayerDrawable(new Drawable[]{ring, new InsetDrawable(swatch, inset)}));
+                button.setElevation(2f * getResources().getDisplayMetrics().density);
+            } else {
+                swatch.setStroke(stroke, border);
+                button.setBackground(swatch);
+                button.setElevation(0f);
+            }
+            button.setSelected(selected);
+        }
     }
 
     private void setupPreviewGestures() {

@@ -40,7 +40,7 @@
             android:layout_width="40dp"
             android:layout_height="40dp"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/edit_name"
+            android:contentDescription="@string/edit_photo"
             android:src="@drawable/ic_edit"
             app:tint="#FFFFFF" />
 
@@ -82,7 +82,7 @@
 
     </LinearLayout>
 
-    <!-- Large Image View -->
+    <!-- Main media area. Only the image or video player is visible at a time. -->
     <ImageView
         android:id="@+id/imgLarge"
         android:layout_width="match_parent"
@@ -91,6 +91,18 @@
         android:layout_below="@+id/topToolbar"
         android:contentDescription="@string/app_name"
         android:scaleType="fitCenter" />
+
+    <androidx.media3.ui.PlayerView
+        android:id="@+id/videoPlayerView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_above="@+id/rvThumbnails"
+        android:layout_below="@+id/topToolbar"
+        android:background="#FF000000"
+        android:visibility="gone"
+        app:resize_mode="fit"
+        app:show_buffering="when_playing"
+        app:use_controller="true" />
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/rvThumbnails"

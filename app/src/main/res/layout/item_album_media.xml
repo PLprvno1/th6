@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent" android:layout_height="150dp" android:layout_margin="4dp"
+    android:clickable="true" android:focusable="true" app:cardCornerRadius="14dp" app:cardElevation="1dp">
+    <FrameLayout android:layout_width="match_parent" android:layout_height="match_parent">
+        <ImageView android:id="@+id/imgAlbumMedia" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="centerCrop" android:src="@drawable/ic_photo_placeholder" />
+        <View android:layout_width="match_parent" android:layout_height="44dp" android:layout_gravity="bottom" android:background="@color/overlay" />
+        <TextView android:id="@+id/tvAlbumMediaName" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_gravity="bottom" android:ellipsize="end" android:maxLines="1" android:padding="8dp" android:textColor="@android:color/white" android:textSize="12sp" />
+        <ImageView android:id="@+id/imgAlbumMediaPlay" android:layout_width="30dp" android:layout_height="30dp" android:layout_gravity="center" android:src="@drawable/ic_play" app:tint="@android:color/white" android:visibility="gone" />
+        <ImageView android:id="@+id/tvAlbumMediaCheck" android:layout_width="34dp" android:layout_height="34dp" android:layout_gravity="top|start" android:layout_margin="5dp" android:contentDescription="@string/album_media_not_selected" android:elevation="4dp" android:padding="2dp" android:scaleType="fitCenter" android:visibility="gone" />
+        <TextView android:id="@+id/tvAlbumMediaExisting" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_gravity="top|end" android:layout_margin="6dp" android:background="@drawable/bg_backup_status" android:paddingHorizontal="7dp" android:paddingVertical="3dp" android:text="Đã có" android:textColor="@color/text_primary" android:textSize="10sp" android:visibility="gone" />
+    </FrameLayout>
+</com.google.android.material.card.MaterialCardView>

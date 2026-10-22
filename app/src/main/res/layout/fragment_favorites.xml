@@ -15,11 +15,37 @@
         android:textSize="22sp"
         android:textStyle="bold" />
 
+    <LinearLayout
+        android:id="@+id/favoriteTimelineControls"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_below="@id/tvHeader"
+        android:orientation="vertical">
+        <HorizontalScrollView android:layout_width="match_parent" android:layout_height="wrap_content" android:paddingHorizontal="8dp" android:scrollbars="none">
+            <com.google.android.material.chip.ChipGroup android:id="@+id/chipFavoriteTimeMode" android:layout_width="wrap_content" android:layout_height="wrap_content" app:singleSelection="true">
+                <com.google.android.material.chip.Chip android:id="@+id/chipFavoriteDays" style="@style/Widget.Material3.Chip.Filter" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/view_mode_days" />
+                <com.google.android.material.chip.Chip android:id="@+id/chipFavoriteMonths" style="@style/Widget.Material3.Chip.Filter" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/view_mode_months" />
+                <com.google.android.material.chip.Chip android:id="@+id/chipFavoriteYears" style="@style/Widget.Material3.Chip.Filter" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/view_mode_years" />
+                <com.google.android.material.chip.Chip android:id="@+id/chipFavoriteAllTime" style="@style/Widget.Material3.Chip.Filter" android:layout_width="wrap_content" android:layout_height="wrap_content" android:checked="true" android:text="@string/view_mode_all" />
+            </com.google.android.material.chip.ChipGroup>
+        </HorizontalScrollView>
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:orientation="horizontal">
+            <HorizontalScrollView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:paddingHorizontal="8dp" android:scrollbars="none">
+                <com.google.android.material.chip.ChipGroup android:id="@+id/chipFavoriteMediaType" android:layout_width="wrap_content" android:layout_height="wrap_content" app:singleSelection="true">
+                    <com.google.android.material.chip.Chip android:id="@+id/chipFavoriteMediaAll" style="@style/Widget.Material3.Chip.Filter" android:layout_width="wrap_content" android:layout_height="wrap_content" android:checked="true" android:text="@string/media_filter_all" />
+                    <com.google.android.material.chip.Chip android:id="@+id/chipFavoriteImages" style="@style/Widget.Material3.Chip.Filter" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/media_filter_images" />
+                    <com.google.android.material.chip.Chip android:id="@+id/chipFavoriteVideos" style="@style/Widget.Material3.Chip.Filter" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/media_filter_videos" />
+                </com.google.android.material.chip.ChipGroup>
+            </HorizontalScrollView>
+            <ImageButton android:id="@+id/btnFavoriteSort" android:layout_width="40dp" android:layout_height="40dp" android:layout_marginEnd="8dp" android:background="?attr/selectableItemBackgroundBorderless" android:contentDescription="@string/menu_sort" android:src="@drawable/ic_sort" app:tint="?attr/colorPrimary" />
+        </LinearLayout>
+    </LinearLayout>
+
     <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
         android:id="@+id/swipeRefresh"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_below="@+id/tvHeader">
+        android:layout_below="@id/favoriteTimelineControls">
 
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/rvFavorites"
@@ -48,6 +74,7 @@
             app:tint="@color/favorite_red" />
 
         <TextView
+            android:id="@+id/tvFavoriteEmptyMessage"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"

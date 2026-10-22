@@ -3,6 +3,7 @@ package com.example.th6.fragments;
 import android.Manifest;
 import android.content.Intent;
 import android.content.ClipData;
+import android.content.Context;
 import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
@@ -28,23 +29,28 @@ import com.bumptech.glide.Glide;
 import com.example.th6.MainActivity;
 import com.example.th6.R;
 import com.example.th6.activities.BackupCenterActivity;
+import com.example.th6.activities.SmartCleanupActivity;
+import com.example.th6.activities.LoginActivity;
 import com.example.th6.activities.PhotoDetailActivity;
 import com.example.th6.activities.VideoPlayerActivity;
 import com.example.th6.activities.SearchActivity;
 import com.example.th6.activities.SlideshowActivity;
 import com.example.th6.adapters.LocalPhotoAdapter;
-import com.example.th6.data.FirestoreRepository;
+import com.example.th6.data.AuthRepository;
+import com.example.th6.data.PhotoRepository;
+import com.example.th6.data.StorageRepository;
 import com.example.th6.databinding.FragmentLibraryBinding;
 import com.example.th6.models.LocalMediaPhoto;
 import com.example.th6.models.Photo;
-import com.example.th6.models.UserProfile;
 import com.example.th6.services.DevicePhotoScanner;
+import com.example.th6.services.BackupUploadLedger;
 import com.example.th6.services.BackupWorkScheduler;
-import com.example.th6.services.ImgBBUploadService;
 import com.example.th6.utils.BackupPreferences;
 import com.example.th6.utils.PhotoTimelineUtils;
-import com.google.firebase.auth.FirebaseAuth;
-import com.google.firebase.auth.FirebaseUser;
+import com.example.th6.utils.MediaTimelineUtils;
+import com.example.th6.utils.PhotoVaultTrashCache;
+import com.example.th6.utils.PhotoTrashManager;
+import io.github.jan.supabase.auth.user.UserInfo;
 import com.google.android.material.snackbar.Snackbar;
 
 import java.io.Serializable;
@@ -61,31 +67,29 @@ import java.util.LinkedHashSet;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicInteger;
 
 public class LibraryFragment extends Fragment implements LocalPhotoAdapter.OnLocalPhotoClickListener {
 
     private FragmentLibraryBinding binding;
     private LocalPhotoAdapter localPhotoAdapter;
     private DevicePhotoScanner photoScanner;
-    private FirestoreRepository repository;
-    private ImgBBUploadService uploadService;
-    private FirebaseAuth mAuth;
+    private PhotoRepository repository;
+    private StorageRepository storageRepository;
+    private AuthRepository authRepository;
 
     private List<LocalMediaPhoto> allDevicePhotos = new ArrayList<>();
     private List<LocalMediaPhoto> localDevicePhotos = new ArrayList<>();
     private final Set<String> selectedPhotoKeys = new LinkedHashSet<>();
     private boolean selectionMode;
     private boolean cloudLoadFailed;
-    private ActivityResultLauncher<IntentSenderRequest> deleteMediaLauncher;
-    private ActivityResultLauncher<String> writeMediaPermissionLauncher;
-    private List<Uri> pendingDeleteUris = new ArrayList<>();
-    private int pendingDeleteSucceeded;
-    private int pendingDeleteCount;
     private String displayedCloudUid;
     private final ExecutorService cloudMergeExecutor = Executors.newSingleThreadExecutor();
     private int currentViewMode = PhotoTimelineUtils.VIEW_MODE_ALL;
+    private int currentSortMode = R.id.sort_date_desc;
+    private int currentMediaFilter = MediaTimelineUtils.FILTER_ALL;
     private boolean scanInProgress;
+    private boolean manualUploadInProgress;
+    private boolean trashOperationRunning;
     private WorkInfo immediateBackupWork;
     private WorkInfo periodicBackupWork;
 
@@ -95,55 +99,17 @@ public class LibraryFragment extends Fragment implements LocalPhotoAdapter.OnLoc
     @Override
     public void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        currentSortMode = requireContext().getSharedPreferences("photovault_library", Context.MODE_PRIVATE)
+                .getInt("sort_mode", R.id.sort_date_desc);
+        currentViewMode = requireContext().getSharedPreferences("photovault_library", Context.MODE_PRIVATE)
+                .getInt("view_mode", PhotoTimelineUtils.VIEW_MODE_ALL);
+        currentMediaFilter = requireContext().getSharedPreferences("photovault_library", Context.MODE_PRIVATE)
+                .getInt("media_filter", MediaTimelineUtils.FILTER_ALL);
 
-        mAuth = FirebaseAuth.getInstance();
-        repository = new FirestoreRepository();
-        uploadService = new ImgBBUploadService();
+        authRepository = new AuthRepository();
+        repository = new PhotoRepository();
+        storageRepository = new StorageRepository();
         photoScanner = new DevicePhotoScanner();
-        deleteMediaLauncher = registerForActivityResult(new ActivityResultContracts.StartIntentSenderForResult(), result -> {
-            if (!isAdded() || getContext() == null) {
-                pendingDeleteUris.clear();
-                pendingDeleteSucceeded = 0;
-                pendingDeleteCount = 0;
-                return;
-            }
-            if (result.getResultCode() == android.app.Activity.RESULT_OK) {
-                if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q && !pendingDeleteUris.isEmpty()) {
-                    deleteUrisOnAndroidQ(new ArrayList<>(pendingDeleteUris), true);
-                } else {
-                    Toast.makeText(getContext(), "Đã gửi yêu cầu xóa cho " + pendingDeleteUris.size() + " ảnh local", Toast.LENGTH_SHORT).show();
-                    pendingDeleteUris.clear();
-                    pendingDeleteCount = 0;
-                    scanDeviceGallery();
-                }
-            } else {
-                pendingDeleteUris.clear();
-                pendingDeleteSucceeded = 0;
-                pendingDeleteCount = 0;
-                Toast.makeText(getContext(), "Đã hủy xóa ảnh", Toast.LENGTH_SHORT).show();
-            }
-        });
-        writeMediaPermissionLauncher = registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {
-            if (!isAdded() || getContext() == null) {
-                pendingDeleteUris.clear();
-                pendingDeleteCount = 0;
-                return;
-            }
-            if (granted && !pendingDeleteUris.isEmpty()) {
-                int deleted = deleteUrisDirectly(new ArrayList<>(pendingDeleteUris));
-                int total = pendingDeleteCount;
-                pendingDeleteUris.clear();
-                pendingDeleteCount = 0;
-                Toast.makeText(getContext(), "Đã xóa " + deleted + "/" + total + " ảnh local", Toast.LENGTH_LONG).show();
-                clearSelection();
-                scanDeviceGallery();
-            } else {
-                pendingDeleteUris.clear();
-                pendingDeleteCount = 0;
-                Toast.makeText(getContext(), "Không được cấp quyền xóa media", Toast.LENGTH_LONG).show();
-            }
-        });
-
         requestPermissionLauncher = registerForActivityResult(
                 new ActivityResultContracts.RequestMultiplePermissions(),
                 results -> {
@@ -155,10 +121,10 @@ public class LibraryFragment extends Fragment implements LocalPhotoAdapter.OnLoc
                             Toast.makeText(getContext(), "Video permission was not granted; videos may be unavailable", Toast.LENGTH_LONG).show();
                         }
                         scanDeviceGallery();
-                        FirebaseUser backupUser = mAuth.getCurrentUser();
+                        UserInfo backupUser = authRepository.getCurrentUser();
                         if (backupUser != null && getContext() != null
-                                && new BackupPreferences(requireContext(), backupUser.getUid()).isBackupEnabled()) {
-                            BackupWorkScheduler.reconcile(requireContext(), backupUser.getUid(), true);
+                                && new BackupPreferences(requireContext(), backupUser.getId()).isBackupEnabled()) {
+                            BackupWorkScheduler.reconcile(requireContext(), backupUser.getId(), true);
                         }
                     }
                     else {
@@ -173,7 +139,7 @@ public class LibraryFragment extends Fragment implements LocalPhotoAdapter.OnLoc
                 new ActivityResultContracts.GetContent(),
                 uri -> {
                     if (uri != null) {
-                        uploadPhotoToImgBB(uri);
+                        uploadPhotoToSupabaseStorage(uri);
                     }
                 }
         );
@@ -192,19 +158,20 @@ public class LibraryFragment extends Fragment implements LocalPhotoAdapter.OnLoc
 
         setupRecyclerView();
         setupListeners();
+        setCheckedTimelineChips();
         observeBackupWork();
         checkPermissionAndScan();
         checkBackupOnboarding();
     }
 
     private void observeBackupWork() {
-        FirebaseUser user = mAuth.getCurrentUser();
+        UserInfo user = authRepository.getCurrentUser();
         if (user == null) {
             renderBackupStatus();
             return;
         }
         WorkManager workManager = WorkManager.getInstance(requireContext().getApplicationContext());
-        String uid = user.getUid();
+        String uid = user.getId();
         workManager.getWorkInfosForUniqueWorkLiveData(BackupWorkScheduler.immediateWorkName(uid))
                 .observe(getViewLifecycleOwner(), infos -> {
                     immediateBackupWork = latestWorkInfo(infos);
@@ -223,7 +190,6 @@ public class LibraryFragment extends Fragment implements LocalPhotoAdapter.OnLoc
         for (int i = infos.size() - 1; i >= 0; i--) {
             if (infos.get(i).getState() == WorkInfo.State.RUNNING) return infos.get(i);
         }
-        // WorkManager returns the unique-work chain in enqueue order; the last item is newest.
         return infos.get(infos.size() - 1);
     }
 
@@ -237,9 +203,11 @@ public class LibraryFragment extends Fragment implements LocalPhotoAdapter.OnLoc
             binding.tvBackupStatus.setText("Đang sao lưu ảnh");
             int total = running.getProgress().getInt("total", 0);
             int completed = running.getProgress().getInt("completed", 0);
+            boolean videoUpload = "video".equals(running.getProgress().getString("current_type"));
+            binding.tvBackupStatus.setText(videoUpload ? "Đang sao lưu video" : "Đang sao lưu media");
             if (total > 0) {
                 binding.tvBackupProgress.setVisibility(View.VISIBLE);
-                binding.tvBackupProgress.setText("Đã xử lý " + Math.min(completed, total) + "/" + total + " ảnh");
+                binding.tvBackupProgress.setText("Đã xử lý " + Math.min(completed, total) + "/" + total + " media");
             } else {
                 binding.tvBackupProgress.setVisibility(View.GONE);
             }
@@ -248,7 +216,6 @@ public class LibraryFragment extends Fragment implements LocalPhotoAdapter.OnLoc
         binding.layoutBackupStatus.setVisibility(View.GONE);
         binding.progressBackupStatus.setVisibility(View.GONE);
         maybeReportPartialCompletion(immediateBackupWork, false);
-        // A periodic WorkRequest returns to ENQUEUED after a successful cycle.
         maybeReportPartialCompletion(periodicBackupWork, true);
     }
 
@@ -264,11 +231,11 @@ public class LibraryFragment extends Fragment implements LocalPhotoAdapter.OnLoc
         String id = info.getId().toString();
         int failures = info.getOutputData().getInt("failures", 0);
         if (failures <= 0) return;
-        FirebaseUser user = mAuth.getCurrentUser();
+        UserInfo user = authRepository.getCurrentUser();
         if (user == null) return;
         android.content.SharedPreferences noticePrefs = requireContext().getSharedPreferences(
                 "backup_status_notices", android.content.Context.MODE_PRIVATE);
-        String noticeKey = "last_partial_" + user.getUid();
+        String noticeKey = "last_partial_" + user.getId();
         if (id.equals(noticePrefs.getString(noticeKey, null))) return;
         noticePrefs.edit().putString(noticeKey, id).apply();
         Snackbar.make(binding.getRoot(), "Sao lưu hoàn tất một phần · " + failures + " ảnh cần xử lý", Snackbar.LENGTH_LONG)
@@ -300,30 +267,48 @@ public class LibraryFragment extends Fragment implements LocalPhotoAdapter.OnLoc
         binding.btnSort.setOnClickListener(this::showSortPopupMenu);
 
         binding.chipAll.setOnClickListener(v -> {
-            currentViewMode = PhotoTimelineUtils.VIEW_MODE_ALL;
-            applyViewModeAndSort();
+            selectTimeline(PhotoTimelineUtils.VIEW_MODE_ALL,currentMediaFilter);
         });
 
         binding.chipDays.setOnClickListener(v -> {
-            currentViewMode = PhotoTimelineUtils.VIEW_MODE_DAYS;
-            applyViewModeAndSort();
+            selectTimeline(PhotoTimelineUtils.VIEW_MODE_DAYS,currentMediaFilter);
         });
 
         binding.chipMonths.setOnClickListener(v -> {
-            currentViewMode = PhotoTimelineUtils.VIEW_MODE_MONTHS;
-            applyViewModeAndSort();
+            selectTimeline(PhotoTimelineUtils.VIEW_MODE_MONTHS,currentMediaFilter);
         });
 
         binding.chipYears.setOnClickListener(v -> {
-            currentViewMode = PhotoTimelineUtils.VIEW_MODE_YEARS;
-            applyViewModeAndSort();
+            selectTimeline(PhotoTimelineUtils.VIEW_MODE_YEARS,currentMediaFilter);
         });
+
+        binding.chipMediaAll.setOnClickListener(v -> selectTimeline(currentViewMode,MediaTimelineUtils.FILTER_ALL));
+        binding.chipMediaImages.setOnClickListener(v -> selectTimeline(currentViewMode,MediaTimelineUtils.FILTER_IMAGES));
+        binding.chipMediaVideos.setOnClickListener(v -> selectTimeline(currentViewMode,MediaTimelineUtils.FILTER_VIDEOS));
 
         binding.btnSelectionCancel.setOnClickListener(v -> clearSelection());
         binding.btnSelectionShare.setOnClickListener(v -> shareSelectedPhotos());
         binding.btnSelectionAlbum.setOnClickListener(v -> addSelectedPhotosToAlbum());
         binding.btnSelectionFavorite.setOnClickListener(v -> toggleSelectedFavorites());
-        binding.btnSelectionDelete.setOnClickListener(v -> confirmDeleteSelectedLocal());
+        binding.btnSelectionDelete.setOnClickListener(v -> confirmMoveSelectedToTrash());
+    }
+
+    private void selectTimeline(int viewMode,int mediaFilter) {
+        currentViewMode=viewMode; currentMediaFilter=mediaFilter;
+        requireContext().getSharedPreferences("photovault_library",Context.MODE_PRIVATE).edit()
+                .putInt("view_mode",viewMode).putInt("media_filter",mediaFilter).apply();
+        setCheckedTimelineChips(); applyViewModeAndSort(); updateEmptyState();
+    }
+
+    private void setCheckedTimelineChips() {
+        if(binding==null)return;
+        if(currentViewMode==PhotoTimelineUtils.VIEW_MODE_DAYS)binding.chipDays.setChecked(true);
+        else if(currentViewMode==PhotoTimelineUtils.VIEW_MODE_MONTHS)binding.chipMonths.setChecked(true);
+        else if(currentViewMode==PhotoTimelineUtils.VIEW_MODE_YEARS)binding.chipYears.setChecked(true);
+        else binding.chipAll.setChecked(true);
+        if(currentMediaFilter==MediaTimelineUtils.FILTER_IMAGES)binding.chipMediaImages.setChecked(true);
+        else if(currentMediaFilter==MediaTimelineUtils.FILTER_VIDEOS)binding.chipMediaVideos.setChecked(true);
+        else binding.chipMediaAll.setChecked(true);
     }
 
     private void checkPermissionAndScan() {
@@ -386,10 +371,18 @@ public class LibraryFragment extends Fragment implements LocalPhotoAdapter.OnLoc
                 binding.swipeRefresh.setRefreshing(false);
 
                 localDevicePhotos = localPhotos != null ? new ArrayList<>(localPhotos) : new ArrayList<>();
-                allDevicePhotos = new ArrayList<>(localDevicePhotos);
+                UserInfo user = authRepository.getCurrentUser();
+                allDevicePhotos = user == null
+                        ? filterLocalsInTrash(requireContext(), localDevicePhotos, knownTrash(null))
+                        : filterLocalsInTrash(requireContext(), localDevicePhotos, knownTrash(user.getId()));
                 applyViewModeAndSort();
                 updateEmptyState();
                 loadCloudPhotosForCurrentUser();
+                if (user != null) {
+                    // Enqueue only after a successful device scan. WorkManager runs the
+                    // existing worker off the UI thread and rechecks the backup queue.
+                    BackupWorkScheduler.enqueueIfEligible(requireContext(), user.getId());
+                }
             }
 
             @Override
@@ -398,67 +391,117 @@ public class LibraryFragment extends Fragment implements LocalPhotoAdapter.OnLoc
                 if (binding == null || !isAdded()) return;
                 binding.progressBar.setVisibility(View.GONE);
                 binding.swipeRefresh.setRefreshing(false);
+                // A failed scan cannot validate the previous MediaStore snapshot. Drop those
+                // local rows so removed files are not presented as if they still existed;
+                // the independent cloud query below can still contribute verified cloud rows.
+                localDevicePhotos = new ArrayList<>();
+                UserInfo user = authRepository.getCurrentUser();
+                allDevicePhotos = filterLocalsInTrash(requireContext(), localDevicePhotos,
+                        knownTrash(user == null ? null : user.getId()));
+                applyViewModeAndSort();
+                updateEmptyState();
+                loadCloudPhotosForCurrentUser();
                 Toast.makeText(getContext(), error, Toast.LENGTH_SHORT).show();
             }
         });
     }
 
-    private void uploadPhotoToImgBB(Uri imageUri) {
-        FirebaseUser currentUser = mAuth.getCurrentUser();
-        if (currentUser == null) return;
-
+    private void uploadPhotoToSupabaseStorage(Uri imageUri) {
+        if (manualUploadInProgress || binding == null || !isAdded()) return;
+        UserInfo currentUser = authRepository.isLoggedIn() ? authRepository.getCurrentUser() : null;
+        if (currentUser == null) {
+            Toast.makeText(getContext(), "Hãy đăng nhập để tải ảnh lên cloud.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        manualUploadInProgress = true;
         binding.progressBar.setVisibility(View.VISIBLE);
-        Toast.makeText(getContext(), "Đang tải ảnh lên ImgBB...", Toast.LENGTH_SHORT).show();
-
-        uploadService.uploadImage(requireContext(), imageUri, new ImgBBUploadService.UploadCallback() {
-            @Override
-            public void onSuccess(String imageUrl) {
-                String photoId = UUID.randomUUID().toString();
-                String photoName = "Photo_" + System.currentTimeMillis();
-
-                Photo photo = new Photo(photoId, currentUser.getUid(), photoName, imageUrl, System.currentTimeMillis());
-                // Keep a device-local link when the picker returned a MediaStore URI; the library
-                // can then merge this cloud record with its local tile without matching by name.
+        Context appContext = requireContext().getApplicationContext();
+        String mime = appContext.getContentResolver().getType(imageUri);
+        if (mime != null && !mime.startsWith("image/")) {
+            manualUploadInProgress = false;
+            binding.progressBar.setVisibility(View.GONE);
+            Toast.makeText(getContext(), "Chỉ có thể tải ảnh lên từ thao tác này.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        if (mime == null) mime = "image/jpeg";
+        String extension = android.webkit.MimeTypeMap.getSingleton().getExtensionFromMimeType(mime);
+        if (extension == null || extension.isEmpty()) extension = "img";
+        String identity = currentUser.getId() + "|" + imageUri;
+        String stableId = UUID.nameUUIDFromBytes(identity.getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
+        String objectPath = currentUser.getId() + "/photos/manual_" + stableId + "." + extension;
+        storageRepository.uploadMediaAsync(appContext, imageUri, objectPath, mime, new StorageRepository.UploadCallback() {
+            @Override public void onSuccess(String publicUrl) {
+                try (BackupUploadLedger ledger = new BackupUploadLedger(appContext)) {
+                    ledger.recordUpload(currentUser.getId(), imageUri.toString(), 0L, publicUrl);
+                } catch (RuntimeException ignored) { }
+                UserInfo activeUser = authRepository.isLoggedIn() ? authRepository.getCurrentUser() : null;
+                if (activeUser == null || !currentUser.getId().equals(activeUser.getId())) {
+                    manualUploadInProgress = false;
+                    if (binding != null) binding.progressBar.setVisibility(View.GONE);
+                    return;
+                }
+                Photo photo = new Photo();
+                photo.setId("manual_" + stableId);
+                photo.setOwnerUid(currentUser.getId());
+                photo.setName("Photo_" + System.currentTimeMillis());
+                photo.setImageUrl(publicUrl);
+                photo.setDisplayUrl(publicUrl);
+                photo.setCreatedAt(System.currentTimeMillis());
+                photo.setMediaType("image");
                 photo.setLocalMediaUri(imageUri.toString());
-
-                repository.savePhoto(photo, new FirestoreRepository.RepositoryCallback<Void>() {
-                    @Override
-                    public void onSuccess(Void result) {
+                photo.setStorageProvider("supabase");
+                photo.setStoragePath(objectPath);
+                repository.savePhotoAsync(photo, new PhotoRepository.Callback<Void>() {
+                    @Override public void onSuccess(Void result) {
+                        try (BackupUploadLedger ledger = new BackupUploadLedger(appContext)) {
+                            ledger.remove(currentUser.getId(), imageUri.toString());
+                        } catch (RuntimeException ignored) { }
+                        manualUploadInProgress = false;
                         if (binding == null || !isAdded()) return;
                         binding.progressBar.setVisibility(View.GONE);
-                        Toast.makeText(getContext(), "Thêm ảnh vào cloud thành công!", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(getContext(), "Đã tải ảnh lên cloud.", Toast.LENGTH_SHORT).show();
                         scanDeviceGallery();
                     }
-
-                    @Override
-                    public void onError(String error) {
+                    @Override public void onError(String error) {
+                        manualUploadInProgress = false;
                         if (binding == null || !isAdded()) return;
                         binding.progressBar.setVisibility(View.GONE);
-                        Toast.makeText(getContext(), "Lỗi lưu cloud metadata: " + error, Toast.LENGTH_LONG).show();
+                        Toast.makeText(getContext(), "Ảnh đã tải lên Storage nhưng chưa lưu metadata. Hãy chọn lại đúng ảnh này để thử đồng bộ lại.", Toast.LENGTH_LONG).show();
                     }
                 });
             }
-
-            @Override
-            public void onError(String error) {
+            @Override public void onError(String error) {
+                manualUploadInProgress = false;
                 if (binding == null || !isAdded()) return;
                 binding.progressBar.setVisibility(View.GONE);
-                Toast.makeText(getContext(), "Lỗi upload ImgBB: " + error, Toast.LENGTH_LONG).show();
+                Toast.makeText(getContext(), error, Toast.LENGTH_LONG).show();
             }
         });
     }
-
     private void showSortPopupMenu(View anchorView) {
         PopupMenu popupMenu = new PopupMenu(requireContext(), anchorView);
         popupMenu.getMenuInflater().inflate(R.menu.options_menu_library, popupMenu.getMenu());
 
         popupMenu.setOnMenuItemClickListener(item -> {
             int itemId = item.getItemId();
-            if (itemId == R.id.action_slideshow) {
+            if (itemId == R.id.sort_date_desc || itemId == R.id.sort_date_asc
+                    || itemId == R.id.sort_name_asc || itemId == R.id.sort_name_desc) {
+                currentSortMode = itemId;
+                requireContext().getSharedPreferences("photovault_library", Context.MODE_PRIVATE)
+                        .edit().putInt("sort_mode", currentSortMode).apply();
+                applyViewModeAndSort();
+                return true;
+            } else if (itemId == R.id.action_upload_photo) {
+                if (!manualUploadInProgress) photoPickerLauncher.launch("image/*");
+                return true;
+            } else if (itemId == R.id.action_slideshow) {
                 startSlideshow();
                 return true;
             } else if (itemId == R.id.action_backup) {
                 startActivity(new Intent(requireContext(), BackupCenterActivity.class));
+                return true;
+            } else if (itemId == R.id.action_smart_cleanup) {
+                startActivity(new Intent(requireContext(), SmartCleanupActivity.class));
                 return true;
             } else if (itemId == R.id.action_search) {
                 startActivity(new Intent(requireContext(), SearchActivity.class));
@@ -474,8 +517,20 @@ public class LibraryFragment extends Fragment implements LocalPhotoAdapter.OnLoc
                 }
                 return true;
             } else if (itemId == R.id.action_logout) {
-                mAuth.signOut();
-                if (getActivity() != null) getActivity().finish();
+                authRepository.signOutAsync(result -> {
+                    if (getActivity() == null) return;
+                    if (!result.getLocalSessionCleared()) {
+                        Toast.makeText(getContext(), "Không thể xóa phiên đăng nhập trên thiết bị. Thử lại.", Toast.LENGTH_LONG).show();
+                        return;
+                    }
+                    if (!result.getServerSignOutConfirmed()) {
+                        Toast.makeText(getContext(), "Đã đăng xuất khỏi thiết bị. Máy chủ chưa xác nhận thu hồi phiên.", Toast.LENGTH_LONG).show();
+                    }
+                    Intent intent = new Intent(getActivity(), LoginActivity.class);
+                    intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                    startActivity(intent);
+                    getActivity().finish();
+                });
                 return true;
             }
             return false;
@@ -492,13 +547,14 @@ public class LibraryFragment extends Fragment implements LocalPhotoAdapter.OnLoc
 
         List<Photo> slideshowList = new ArrayList<>();
         for (LocalMediaPhoto local : allDevicePhotos) {
-            slideshowList.add(new Photo(
-                    String.valueOf(local.getMediaId()),
-                    "local",
-                    local.getDisplayName(),
-                    local.getContentUri(),
-                    local.getDateModified()
-            ));
+            Photo p = new Photo();
+            p.setId(String.valueOf(local.getMediaId()));
+            p.setOwnerUid("local");
+            p.setName(local.getDisplayName());
+            p.setImageUrl(local.getContentUri());
+            p.setDisplayUrl(local.getContentUri());
+            p.setCreatedAt(local.getTimelineTimestamp());
+            slideshowList.add(p);
         }
 
         Intent intent = new Intent(requireContext(), SlideshowActivity.class);
@@ -508,8 +564,10 @@ public class LibraryFragment extends Fragment implements LocalPhotoAdapter.OnLoc
 
     private void applyViewModeAndSort() {
         if (allDevicePhotos == null) allDevicePhotos = new ArrayList<>();
-        Collections.sort(allDevicePhotos, (p1, p2) -> Long.compare(p2.getDateModified(), p1.getDateModified()));
-        localPhotoAdapter.setPhotoList(allDevicePhotos, currentViewMode);
+        List<LocalMediaPhoto> displayPhotos = MediaTimelineUtils.filterAndSort(allDevicePhotos,
+                currentMediaFilter, currentViewMode, currentSortMode,
+                LocalMediaPhoto::getTimelineTimestamp, LocalMediaPhoto::getDisplayName, LocalMediaPhoto::isVideo);
+        localPhotoAdapter.setPhotoList(displayPhotos, currentViewMode);
         Set<String> validKeys = new LinkedHashSet<>();
         for (LocalMediaPhoto photo : allDevicePhotos) validKeys.add(LocalPhotoAdapter.keyFor(photo));
         selectedPhotoKeys.retainAll(validKeys);
@@ -518,25 +576,24 @@ public class LibraryFragment extends Fragment implements LocalPhotoAdapter.OnLoc
     }
 
     private void loadCloudPhotosForCurrentUser() {
-        FirebaseUser user = mAuth.getCurrentUser();
+        UserInfo user = authRepository.getCurrentUser();
         if (user == null || getContext() == null) {
-            // Do not retain a previous account's cloud items after logout/account switch.
             displayedCloudUid = null;
             cloudLoadFailed = false;
             if (selectionMode) clearSelection();
-            allDevicePhotos = new ArrayList<>(localDevicePhotos);
+            allDevicePhotos = filterLocalsInTrash(requireContext(), localDevicePhotos, knownTrash(null));
             applyViewModeAndSort();
             updateEmptyState();
             return;
         }
-        final String requestedUid = user.getUid();
+        final String requestedUid = user.getId();
         if (!requestedUid.equals(displayedCloudUid)) {
             if (selectionMode) clearSelection();
-            allDevicePhotos = new ArrayList<>(localDevicePhotos);
+            allDevicePhotos = filterLocalsInTrash(requireContext(), localDevicePhotos, knownTrash(requestedUid));
             applyViewModeAndSort();
             updateEmptyState();
         }
-        repository.getPhotos(requestedUid, new FirestoreRepository.RepositoryCallback<List<Photo>>() {
+        repository.getPhotosByUserAsync(requestedUid, new PhotoRepository.Callback<List<Photo>>() {
             @Override public void onSuccess(List<Photo> cloudPhotos) {
                 androidx.fragment.app.FragmentActivity activity = getActivity();
                 if (activity == null) return;
@@ -544,11 +601,12 @@ public class LibraryFragment extends Fragment implements LocalPhotoAdapter.OnLoc
                 List<LocalMediaPhoto> localSnapshot = new ArrayList<>(localDevicePhotos);
                 List<Photo> cloudSnapshot = cloudPhotos == null ? new ArrayList<>() : new ArrayList<>(cloudPhotos);
                 android.content.Context appContext = requireContext().getApplicationContext();
+                PhotoVaultTrashCache.replace(appContext, requestedUid, cloudSnapshot);
                 cloudMergeExecutor.execute(() -> {
                     List<LocalMediaPhoto> merged = mergeLocalAndCloud(appContext, localSnapshot, cloudSnapshot);
                     activity.runOnUiThread(() -> {
-                        FirebaseUser active = mAuth.getCurrentUser();
-                        if (binding == null || !isAdded() || active == null || !requestedUid.equals(active.getUid())) return;
+                        UserInfo active = authRepository.getCurrentUser();
+                        if (binding == null || !isAdded() || active == null || !requestedUid.equals(active.getId())) return;
                         allDevicePhotos = merged;
                         displayedCloudUid = requestedUid;
                         applyViewModeAndSort();
@@ -557,9 +615,8 @@ public class LibraryFragment extends Fragment implements LocalPhotoAdapter.OnLoc
                 });
             }
             @Override public void onError(String error) {
-                // Cloud failure must never discard the local MediaStore library.
-                FirebaseUser active = mAuth.getCurrentUser();
-                if (active == null || !requestedUid.equals(active.getUid())) return;
+                UserInfo active = authRepository.getCurrentUser();
+                if (active == null || !requestedUid.equals(active.getId())) return;
                 cloudLoadFailed = true;
                 if (binding != null && isAdded()) {
                     updateEmptyState();
@@ -576,28 +633,39 @@ public class LibraryFragment extends Fragment implements LocalPhotoAdapter.OnLoc
                                                        List<LocalMediaPhoto> localItems,
                                                        List<Photo> cloudItems) {
         Map<String, LocalMediaPhoto> byUri = new HashMap<>();
-        Map<Long, LocalMediaPhoto> byMediaId = new HashMap<>();
+        Map<String, LocalMediaPhoto> byMediaId = new HashMap<>();
         List<LocalMediaPhoto> merged = new ArrayList<>();
         for (LocalMediaPhoto source : localItems) {
             LocalMediaPhoto local = copyLocalPhoto(source);
             merged.add(local);
             if (local.getContentUri() != null) byUri.put(local.getContentUri(), local);
-            if (local.getMediaId() > 0) byMediaId.put(local.getMediaId(), local);
+            if (local.getMediaId() > 0) byMediaId.put(localTypeKey(local) + ":" + local.getMediaId(), local);
         }
         Map<String, LocalMediaPhoto> byHash = new HashMap<>();
+        Map<String, String> hashByUri = new HashMap<>();
         boolean cloudHasHashes = false;
         for (Photo cloud : cloudItems) if (cloud.getContentHash() != null && !cloud.getContentHash().isEmpty()) cloudHasHashes = true;
         if (cloudHasHashes) {
             for (LocalMediaPhoto local : merged) {
                 String hash = hashUri(context, local.getContentUri());
-                if (hash != null) byHash.put(hash, local);
+                if (hash != null) {
+                    byHash.put(hash, local);
+                    hashByUri.put(local.getContentUri(), hash);
+                }
             }
         }
         for (Photo cloud : cloudItems) {
             if (cloud.isTrashed() || cloud.getImageUrl() == null || cloud.getImageUrl().isEmpty()) continue;
             LocalMediaPhoto match = cloud.getLocalMediaUri() == null ? null : byUri.get(cloud.getLocalMediaUri());
-            if (match == null && cloud.getLocalMediaId() > 0) match = byMediaId.get(cloud.getLocalMediaId());
-            if (match == null && cloud.getContentHash() != null) match = byHash.get(cloud.getContentHash());
+            String cloudType = cloudType(cloud);
+            if (match != null && !cloudType.equals(localTypeKey(match))) match = null;
+            if (match == null && cloud.getLocalMediaId() > 0) {
+                match = byMediaId.get(cloudType + ":" + cloud.getLocalMediaId());
+            }
+            if (match == null && cloud.getContentHash() != null) {
+                LocalMediaPhoto hashMatch = byHash.get(cloud.getContentHash());
+                if (hashMatch != null && cloudType.equals(localTypeKey(hashMatch))) match = hashMatch;
+            }
             if (match != null) {
                 match.setCloudPhoto(cloud);
                 match.setCloudPhotoId(cloud.getId());
@@ -607,8 +675,11 @@ public class LibraryFragment extends Fragment implements LocalPhotoAdapter.OnLoc
                 LocalMediaPhoto remote = new LocalMediaPhoto();
                 remote.setMediaId(-Math.abs((long) cloud.getId().hashCode()));
                 remote.setDisplayName(cloud.getName() == null || cloud.getName().isEmpty() ? "Ảnh cloud" : cloud.getName());
-                remote.setMimeType("image/*");
+                boolean cloudVideo = "video".equalsIgnoreCase(cloud.getMediaType());
+                remote.setVideo(cloudVideo);
+                remote.setMimeType(cloudVideo ? "video/*" : "image/*");
                 remote.setDateModified(cloud.getCreatedAt());
+                remote.setDateTaken(cloud.getCreatedAt());
                 remote.setCloudPhoto(cloud);
                 remote.setCloudPhotoId(cloud.getId());
                 remote.setCloudUrl(cloud.getImageUrl());
@@ -616,12 +687,103 @@ public class LibraryFragment extends Fragment implements LocalPhotoAdapter.OnLoc
                 merged.add(remote);
             }
         }
+        List<Photo> trashedCloud = new ArrayList<>();
+        for (Photo cloud : cloudItems) if (cloud != null && cloud.isTrashed()) trashedCloud.add(cloud);
+        trashedCloud.addAll(PhotoVaultTrashCache.getLocal(context));
+        removeLocalsMatchedByTrash(merged, trashedCloud, hashByUri);
         return merged;
+    }
+
+    private List<Photo> knownTrash(@Nullable String uid) {
+        List<Photo> result = PhotoVaultTrashCache.getLocal(requireContext());
+        if (uid != null) result.addAll(PhotoVaultTrashCache.get(requireContext(), uid));
+        return result;
+    }
+
+    private List<LocalMediaPhoto> filterLocalsInTrash(android.content.Context context,
+                                                       List<LocalMediaPhoto> locals,
+                                                       List<Photo> trashed) {
+        List<LocalMediaPhoto> filtered = new ArrayList<>();
+        if (locals == null || locals.isEmpty() || trashed == null || trashed.isEmpty()) {
+            if (locals != null) filtered.addAll(locals);
+            return filtered;
+        }
+        Map<String, String> hashes = new HashMap<>();
+        boolean needsHash = false;
+        for (Photo photo : trashed) {
+            if (photo.getContentHash() != null && !photo.getContentHash().isEmpty()) needsHash = true;
+        }
+        if (needsHash) for (LocalMediaPhoto local : locals) {
+            String hash = hashUri(context, local.getContentUri());
+            if (hash != null) hashes.put(local.getContentUri(), hash);
+        }
+        Set<String> hiddenUris = new LinkedHashSet<>();
+        Set<String> hiddenIds = new java.util.HashSet<>();
+        Set<String> hiddenHashes = new java.util.HashSet<>();
+        for (Photo photo : trashed) {
+            if (photo.getLocalMediaUri() != null && !photo.getLocalMediaUri().isEmpty()) hiddenUris.add(photo.getLocalMediaUri());
+            if (photo.getLocalMediaId() > 0) hiddenIds.add(cloudType(photo) + ":" + photo.getLocalMediaId());
+            if (photo.getContentHash() != null && !photo.getContentHash().isEmpty()) {
+                hiddenHashes.add(cloudType(photo) + ":" + photo.getContentHash());
+            }
+        }
+        for (LocalMediaPhoto local : locals) {
+            boolean hidden = (local.getContentUri() != null && hiddenUris.contains(local.getContentUri()))
+                    || (local.getMediaId() > 0 && hiddenIds.contains(localTypeKey(local) + ":" + local.getMediaId()))
+                    || (local.getContentUri() != null && hiddenHashes.contains(
+                    localTypeKey(local) + ":" + hashes.get(local.getContentUri())));
+            if (!hidden) filtered.add(local);
+        }
+        return filtered;
+    }
+
+    private void removeLocalsMatchedByTrash(List<LocalMediaPhoto> merged, List<Photo> trashed,
+                                             Map<String, String> hashByUri) {
+        if (trashed.isEmpty()) return;
+        Set<String> hiddenUris = new LinkedHashSet<>();
+        Set<String> hiddenIds = new java.util.HashSet<>();
+        Set<String> hiddenHashes = new java.util.HashSet<>();
+        for (Photo photo : trashed) {
+            if (photo.getLocalMediaUri() != null && !photo.getLocalMediaUri().isEmpty()) hiddenUris.add(photo.getLocalMediaUri());
+            if (photo.getLocalMediaId() > 0) hiddenIds.add(cloudType(photo) + ":" + photo.getLocalMediaId());
+            if (photo.getContentHash() != null && !photo.getContentHash().isEmpty()) {
+                hiddenHashes.add(cloudType(photo) + ":" + photo.getContentHash());
+            }
+        }
+        java.util.Iterator<LocalMediaPhoto> iterator = merged.iterator();
+        while (iterator.hasNext()) {
+            LocalMediaPhoto item = iterator.next();
+            if (item.getCloudPhoto() != null) continue;
+            String uri = item.getContentUri();
+            if ((uri != null && hiddenUris.contains(uri))
+                    || (item.getMediaId() > 0 && hiddenIds.contains(localTypeKey(item) + ":" + item.getMediaId()))
+                    || (uri != null && hiddenHashes.contains(localTypeKey(item) + ":" + hashByUri.get(uri)))) iterator.remove();
+        }
+    }
+
+    private String localTypeKey(LocalMediaPhoto item) {
+        return item != null && item.isVideo() ? "video" : "image";
+    }
+
+    private String cloudType(Photo item) {
+        if (item == null) return "image";
+        String type = item.getMediaType();
+        if (type != null && type.toLowerCase(java.util.Locale.ROOT).startsWith("video")) return "video";
+        String url = item.getImageUrl();
+        if (url != null) {
+            String path = Uri.parse(url).getPath();
+            String extension = path == null ? "" : path.toLowerCase(java.util.Locale.ROOT);
+            if (extension.endsWith(".mp4") || extension.endsWith(".mov")
+                    || extension.endsWith(".m4v") || extension.endsWith(".webm")
+                    || extension.endsWith(".3gp") || extension.endsWith(".mkv")) return "video";
+        }
+        return "image";
     }
 
     private LocalMediaPhoto copyLocalPhoto(LocalMediaPhoto source) {
         LocalMediaPhoto copy = new LocalMediaPhoto(source.getMediaId(), source.getContentUri(), source.getDisplayName(),
                 source.getMimeType(), source.getSizeBytes(), source.getWidth(), source.getHeight(), source.getDateModified());
+        copy.setDateTaken(source.getDateTaken());
         copy.setVideo(source.isVideo());
         copy.setDurationMs(source.getDurationMs());
         copy.setBackupStatus(source.getBackupStatus());
@@ -643,12 +805,15 @@ public class LibraryFragment extends Fragment implements LocalPhotoAdapter.OnLoc
     }
 
     private void updateEmptyState() {
-        if (allDevicePhotos.isEmpty()) {
+        boolean noMediaMatches = MediaTimelineUtils.filterAndSort(allDevicePhotos, currentMediaFilter,
+                currentViewMode, currentSortMode, LocalMediaPhoto::getTimelineTimestamp,
+                LocalMediaPhoto::getDisplayName, LocalMediaPhoto::isVideo).isEmpty();
+        if (allDevicePhotos.isEmpty() || noMediaMatches) {
             binding.layoutEmpty.setVisibility(View.VISIBLE);
             binding.rvPhotos.setVisibility(View.GONE);
             binding.tvEmptyMessage.setText(cloudLoadFailed
                     ? "Không tải được ảnh cloud. Kiểm tra kết nối rồi thử làm mới."
-                    : getString(R.string.empty_photos));
+                    : allDevicePhotos.isEmpty() ? getString(R.string.empty_photos) : getString(R.string.empty_media_filter));
         } else {
             binding.layoutEmpty.setVisibility(View.GONE);
             binding.rvPhotos.setVisibility(View.VISIBLE);
@@ -661,42 +826,24 @@ public class LibraryFragment extends Fragment implements LocalPhotoAdapter.OnLoc
             togglePhotoSelection(photo);
             return;
         }
-        if (photo.isVideo()) {
-            Intent intent = new Intent(requireContext(), VideoPlayerActivity.class);
-            intent.putExtra("video", photo);
-            startActivity(intent);
-        } else {
-            Photo cloudPhoto = photo.getCloudPhoto() != null ? copyCloudPhoto(photo.getCloudPhoto()) : new Photo(
-                    String.valueOf(photo.getMediaId()),
-                    "local",
-                    photo.getDisplayName(),
-                    photo.getContentUri(),
-                    photo.getDateModified()
-            );
-            if (photo.getContentUri() != null && !photo.getContentUri().isEmpty()) cloudPhoto.setImageUrl(photo.getContentUri());
-            List<Photo> galleryPhotos = new ArrayList<>();
-            for (LocalMediaPhoto item : allDevicePhotos) {
-                if (item.isVideo()) continue;
-                Photo galleryItem;
-                if (item.getCloudPhoto() != null) {
-                    galleryItem = copyCloudPhoto(item.getCloudPhoto());
-                    if (item.getContentUri() != null && !item.getContentUri().isEmpty()) galleryItem.setImageUrl(item.getContentUri());
-                } else {
-                    galleryItem = new Photo(String.valueOf(item.getMediaId()), "local", item.getDisplayName(),
-                            item.getContentUri(), item.getDateModified());
-                    galleryItem.setLocalMediaId(item.getMediaId());
-                    galleryItem.setLocalMediaUri(item.getContentUri());
-                }
-                galleryPhotos.add(galleryItem);
-            }
-            Intent intent = PhotoDetailActivity.createIntent(requireContext(), cloudPhoto, galleryPhotos);
-            startActivity(intent);
-        }
+        Photo current = PhotoDetailActivity.photoForLocalMedia(photo);
+        List<LocalMediaPhoto> visibleMedia = MediaTimelineUtils.filterAndSort(allDevicePhotos,
+                currentMediaFilter, currentViewMode, currentSortMode,
+                LocalMediaPhoto::getTimelineTimestamp, LocalMediaPhoto::getDisplayName, LocalMediaPhoto::isVideo);
+        List<Photo> collection = new ArrayList<>(visibleMedia.size());
+        for (LocalMediaPhoto item : visibleMedia) collection.add(PhotoDetailActivity.photoForLocalMedia(item));
+        startActivity(PhotoDetailActivity.createIntent(requireContext(), current, collection));
     }
 
     private Photo copyCloudPhoto(Photo source) {
-        Photo copy = new Photo(source.getId(), source.getOwnerUid(), source.getName(), source.getImageUrl(), source.getCreatedAt());
+        Photo copy = new Photo();
+        copy.setId(source.getId());
+        copy.setOwnerUid(source.getOwnerUid());
+        copy.setName(source.getName());
+        copy.setImageUrl(source.getImageUrl());
         copy.setDisplayUrl(source.getDisplayUrl());
+        copy.setCreatedAt(source.getCreatedAt());
+        copy.setMediaType(source.getMediaType());
         copy.setFavorite(source.isFavorite());
         copy.setTrashed(source.isTrashed());
         copy.setTrashedAt(source.getTrashedAt());
@@ -786,11 +933,10 @@ public class LibraryFragment extends Fragment implements LocalPhotoAdapter.OnLoc
         }
         startActivity(Intent.createChooser(share, "Chia sẻ ảnh"));
     }
-
     private void addSelectedPhotosToAlbum() {
-        FirebaseUser user = mAuth.getCurrentUser();
+        UserInfo user = authRepository.getCurrentUser();
         if (user == null) return;
-        repository.getAlbums(user.getUid(), new FirestoreRepository.RepositoryCallback<List<com.example.th6.models.Album>>() {
+        repository.getAlbumsAsync(user.getId(), new PhotoRepository.Callback<List<com.example.th6.models.Album>>() {
             @Override public void onSuccess(List<com.example.th6.models.Album> albums) {
                 if (binding == null || !isAdded()) return;
                 if (albums == null || albums.isEmpty()) {
@@ -801,7 +947,7 @@ public class LibraryFragment extends Fragment implements LocalPhotoAdapter.OnLoc
                 for (int i = 0; i < albums.size(); i++) names[i] = albums.get(i).getName();
                 new androidx.appcompat.app.AlertDialog.Builder(requireContext())
                         .setTitle("Thêm ảnh đã sao lưu vào album")
-                        .setItems(names, (dialog, which) -> applySelectedAlbum(user.getUid(), albums.get(which).getId()))
+                        .setItems(names, (dialog, which) -> applySelectedAlbum(user.getId(), albums.get(which).getId()))
                         .setNegativeButton("Hủy", null).show();
             }
             @Override public void onError(String error) {
@@ -820,7 +966,7 @@ public class LibraryFragment extends Fragment implements LocalPhotoAdapter.OnLoc
             List<String> ids = new ArrayList<>(photo.getAlbumIds());
             if (!ids.contains(albumId)) ids.add(albumId);
             else { if (remaining.decrementAndGet() == 0) finishAlbumSelection(successes.get(), cloudPhotos.size()); continue; }
-            repository.updatePhotoAlbums(uid, photo.getId(), ids, new FirestoreRepository.RepositoryCallback<Void>() {
+            repository.updatePhotoAlbumsAsync(uid, photo.getId(), ids, new PhotoRepository.Callback<Void>() {
                 @Override public void onSuccess(Void result) { photo.setAlbumIds(ids); successes.incrementAndGet(); finishOneAlbumUpdate(remaining, successes, cloudPhotos.size()); }
                 @Override public void onError(String error) { finishOneAlbumUpdate(remaining, successes, cloudPhotos.size()); }
             });
@@ -838,7 +984,7 @@ public class LibraryFragment extends Fragment implements LocalPhotoAdapter.OnLoc
     }
 
     private void toggleSelectedFavorites() {
-        FirebaseUser user = mAuth.getCurrentUser();
+        UserInfo user = authRepository.getCurrentUser();
         if (user == null) return;
         List<Photo> cloudPhotos = new ArrayList<>();
         for (LocalMediaPhoto item : selectedPhotos()) if (item.getCloudPhoto() != null) cloudPhotos.add(item.getCloudPhoto());
@@ -848,7 +994,7 @@ public class LibraryFragment extends Fragment implements LocalPhotoAdapter.OnLoc
         boolean favoriteValue = cloudPhotos.stream().allMatch(Photo::isFavorite) ? false : true;
         for (Photo photo : cloudPhotos) {
             boolean newFavorite = favoriteValue;
-            repository.toggleFavorite(user.getUid(), photo.getId(), newFavorite, new FirestoreRepository.RepositoryCallback<Void>() {
+            repository.toggleFavoriteAsync(user.getId(), photo.getId(), newFavorite, new PhotoRepository.Callback<Void>() {
                 @Override public void onSuccess(Void result) { photo.setFavorite(newFavorite); successes.incrementAndGet(); finishFavoriteUpdate(remaining, successes, cloudPhotos.size()); }
                 @Override public void onError(String error) { finishFavoriteUpdate(remaining, successes, cloudPhotos.size()); }
             });
@@ -861,109 +1007,91 @@ public class LibraryFragment extends Fragment implements LocalPhotoAdapter.OnLoc
         clearSelection();
     }
 
-    private void confirmDeleteSelectedLocal() {
-        List<Uri> uris = new ArrayList<>();
-        int cloudOnly = 0;
-        for (LocalMediaPhoto photo : selectedPhotos()) {
-            if (photo.getContentUri() != null && "content".equalsIgnoreCase(Uri.parse(photo.getContentUri()).getScheme())) {
-                uris.add(Uri.parse(photo.getContentUri()));
-            } else cloudOnly++;
-        }
-        if (uris.isEmpty()) {
-            Toast.makeText(requireContext(), "Không có bản local để xóa. Ảnh cloud được giữ nguyên.", Toast.LENGTH_LONG).show();
+    private void confirmMoveSelectedToTrash() {
+        List<LocalMediaPhoto> selected = new ArrayList<>(selectedPhotos());
+        if (selected.isEmpty() || trashOperationRunning) return;
+        new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                .setTitle("Chuyển vào thùng rác?")
+                .setMessage("Chuyển " + selected.size() + " ảnh/video vào thùng rác PhotoVault. File gốc trên thiết bị sẽ được giữ nguyên.")
+                .setNegativeButton("Hủy", null)
+                .setPositiveButton("Chuyển vào thùng rác", (dialog, which) -> moveSelectedToTrash(selected))
+                .show();
+    }
+
+    private void moveSelectedToTrash(List<LocalMediaPhoto> selected) {
+        if (trashOperationRunning || selected.isEmpty()) return;
+        trashOperationRunning = true;
+        binding.btnSelectionDelete.setEnabled(false);
+        UserInfo user = authRepository.getCurrentUser();
+        moveSelectedToTrashAt(selected, 0, user == null ? null : user.getId(), 0, new ArrayList<>());
+    }
+
+    private void moveSelectedToTrashAt(List<LocalMediaPhoto> selected, int index, String uid,
+                                       int successes, List<String> failures) {
+        if (index >= selected.size()) {
+            trashOperationRunning = false;
+            if (binding == null || !isAdded()) return;
+            binding.btnSelectionDelete.setEnabled(true);
+            if (selectedPhotoKeys.isEmpty()) clearSelection(); else renderSelectionMode();
+            String summary = "Đã chuyển " + successes + "/" + selected.size() + " mục vào thùng rác.";
+            if (failures.isEmpty()) Toast.makeText(requireContext(), summary, Toast.LENGTH_LONG).show();
+            else new androidx.appcompat.app.AlertDialog.Builder(requireContext()).setTitle(summary)
+                    .setMessage(android.text.TextUtils.join("\n\n", failures))
+                    .setPositiveButton("Đóng", null).show();
+            scanDeviceGallery();
             return;
         }
-        int skippedCloud = cloudOnly;
-        new androidx.appcompat.app.AlertDialog.Builder(requireContext())
-                .setTitle("Xóa bản local?")
-                .setMessage("Xóa " + uris.size() + " ảnh khỏi thiết bị. Ảnh cloud sẽ không bị xóa."
-                        + (skippedCloud > 0 ? " " + skippedCloud + " ảnh chỉ có trên cloud sẽ được giữ nguyên." : ""))
-                .setPositiveButton("Tiếp tục", (dialog, which) -> requestDeleteLocalUris(uris))
-                .setNegativeButton("Hủy", null).show();
-    }
-
-    private void requestDeleteLocalUris(List<Uri> uris) {
-        pendingDeleteUris = new ArrayList<>(uris);
-        pendingDeleteCount = uris.size();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            try {
-                android.app.PendingIntent request = android.provider.MediaStore.createDeleteRequest(
-                        requireContext().getContentResolver(), uris);
-                deleteMediaLauncher.launch(new IntentSenderRequest.Builder(request.getIntentSender()).build());
-            } catch (Exception error) {
-                Toast.makeText(requireContext(), "Không thể mở xác nhận xóa của Android.", Toast.LENGTH_LONG).show();
-                pendingDeleteUris.clear();
-                pendingDeleteCount = 0;
+        LocalMediaPhoto item = selected.get(index);
+        Photo target = photoForTrash(item);
+        PhotoTrashManager.moveToTrash(requireContext(), uid, target, new PhotoTrashManager.Callback() {
+            @Override public void onSuccess(Photo moved) {
+                selectedPhotoKeys.remove(LocalPhotoAdapter.keyFor(item));
+                if (binding != null && isAdded()) binding.getRoot().post(() -> moveSelectedToTrashAt(selected, index + 1, uid, successes + 1, failures));
             }
-        } else if (Build.VERSION.SDK_INT == Build.VERSION_CODES.Q) {
-            deleteUrisOnAndroidQ(uris, true);
-        } else {
-            if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                    != PackageManager.PERMISSION_GRANTED) {
-                writeMediaPermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE);
-                return;
+            @Override public void onError(String error) {
+                failures.add((item.getDisplayName() == null ? "Mục" : item.getDisplayName()) + ": " + error);
+                if (binding != null) binding.getRoot().post(() -> moveSelectedToTrashAt(selected, index + 1, uid, successes, failures));
             }
-            int deleted = deleteUrisDirectly(uris);
-            Toast.makeText(requireContext(), "Đã xóa " + deleted + "/" + uris.size() + " ảnh local", Toast.LENGTH_LONG).show();
-            clearSelection();
-            scanDeviceGallery();
-        }
+        });
     }
 
-    private void deleteUrisOnAndroidQ(List<Uri> uris, boolean allowPermissionRequest) {
-        int deleted = 0;
-        for (Uri uri : uris) {
-            try {
-                if (requireContext().getContentResolver().delete(uri, null, null) > 0) deleted++;
-            } catch (android.app.RecoverableSecurityException recoverable) {
-                if (allowPermissionRequest) {
-                    pendingDeleteUris = new ArrayList<>(uris);
-                    pendingDeleteSucceeded += deleted;
-                    deleteMediaLauncher.launch(new IntentSenderRequest.Builder(
-                            recoverable.getUserAction().getActionIntent().getIntentSender()).build());
-                    return;
-                }
-            } catch (SecurityException ignored) { }
+    private Photo photoForTrash(LocalMediaPhoto item) {
+        Photo photo = item.getCloudPhoto() == null ? new Photo() : copyCloudPhoto(item.getCloudPhoto());
+        if (item.getCloudPhoto() == null) {
+            photo.setId("local:" + item.getMediaId());
+            photo.setOwnerUid("local");
+            photo.setImageUrl(item.getContentUri() == null ? "" : item.getContentUri());
+            photo.setMediaType(item.isVideo() ? "video" : "image");
+            photo.setCreatedAt(item.getTimelineTimestamp());
         }
-        deleted += pendingDeleteSucceeded;
-        pendingDeleteSucceeded = 0;
-        pendingDeleteUris.clear();
-        pendingDeleteCount = 0;
-        Toast.makeText(requireContext(), "Đã xóa " + deleted + "/" + uris.size() + " ảnh local", Toast.LENGTH_LONG).show();
-        clearSelection();
-        scanDeviceGallery();
-    }
-
-    private int deleteUrisDirectly(List<Uri> uris) {
-        int deleted = 0;
-        for (Uri uri : uris) {
-            try { if (requireContext().getContentResolver().delete(uri, null, null) > 0) deleted++; }
-            catch (SecurityException ignored) { }
-        }
-        return deleted;
+        photo.setName(item.getDisplayName());
+        if (item.getContentUri() != null) photo.setLocalMediaUri(item.getContentUri());
+        if (item.getMediaId() > 0) photo.setLocalMediaId(item.getMediaId());
+        photo.setLocalDateModified(item.getDateModified());
+        return photo;
     }
 
     private void checkBackupOnboarding() {
-        FirebaseUser user = mAuth.getCurrentUser();
+        UserInfo user = authRepository.getCurrentUser();
         if (user != null && getContext() != null) {
-            BackupPreferences prefs = new BackupPreferences(requireContext(), user.getUid());
+            BackupPreferences prefs = new BackupPreferences(requireContext(), user.getId());
             if (!prefs.isOnboardingShown()) {
                 BackupOnboardingDialog dialog = BackupOnboardingDialog.newInstance(new BackupOnboardingDialog.OnBackupDecisionListener() {
                     @Override
                     public void onEnableBackup(boolean isWifiOnly) {
                         Toast.makeText(getContext(), "Đã bật tự động sao lưu", Toast.LENGTH_SHORT).show();
-                        FirebaseUser enabledUser = mAuth.getCurrentUser();
+                        UserInfo enabledUser = authRepository.getCurrentUser();
                         if (enabledUser != null && getContext() != null) {
-                            BackupWorkScheduler.reconcile(requireContext(), enabledUser.getUid(), true);
+                            BackupWorkScheduler.reconcile(requireContext(), enabledUser.getId(), true);
                         }
                     }
 
                     @Override
                     public void onSkipBackup() {
                         Toast.makeText(getContext(), "Đã bỏ qua sao lưu", Toast.LENGTH_SHORT).show();
-                        FirebaseUser skippedUser = mAuth.getCurrentUser();
+                        UserInfo skippedUser = authRepository.getCurrentUser();
                         if (skippedUser != null && getContext() != null) {
-                            BackupWorkScheduler.disable(requireContext(), skippedUser.getUid());
+                            BackupWorkScheduler.disable(requireContext(), skippedUser.getId());
                         }
                     }
                 });
@@ -975,6 +1103,13 @@ public class LibraryFragment extends Fragment implements LocalPhotoAdapter.OnLoc
     @Override
     public void onResume() {
         super.onResume();
+        if(binding!=null){
+            android.content.SharedPreferences prefs=requireContext().getSharedPreferences("photovault_library",Context.MODE_PRIVATE);
+            currentSortMode=prefs.getInt("sort_mode",R.id.sort_date_desc);
+            currentViewMode=prefs.getInt("view_mode",PhotoTimelineUtils.VIEW_MODE_ALL);
+            currentMediaFilter=prefs.getInt("media_filter",MediaTimelineUtils.FILTER_ALL);
+            setCheckedTimelineChips(); applyViewModeAndSort(); updateEmptyState();
+        }
         if (hasAnyMediaReadPermission()) scanDeviceGallery();
         else loadCloudPhotosForCurrentUser();
     }
@@ -992,3 +1127,5 @@ public class LibraryFragment extends Fragment implements LocalPhotoAdapter.OnLoc
         super.onDestroy();
     }
 }
+
+

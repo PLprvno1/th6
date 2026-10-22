@@ -8,11 +8,11 @@ import android.view.ViewGroup;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 
+import com.example.th6.data.AuthRepository;
 import com.example.th6.databinding.DialogBackupOnboardingBinding;
 import com.example.th6.utils.BackupPreferences;
 import com.google.android.material.bottomsheet.BottomSheetDialogFragment;
-import com.google.firebase.auth.FirebaseAuth;
-import com.google.firebase.auth.FirebaseUser;
+import io.github.jan.supabase.auth.user.UserInfo;
 
 public class BackupOnboardingDialog extends BottomSheetDialogFragment {
 
@@ -41,10 +41,12 @@ public class BackupOnboardingDialog extends BottomSheetDialogFragment {
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
 
+        AuthRepository authRepository = new AuthRepository();
+
         binding.btnEnableBackup.setOnClickListener(v -> {
-            FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
+            UserInfo user = authRepository.getCurrentUser();
             if (user != null && getContext() != null) {
-                BackupPreferences prefs = new BackupPreferences(requireContext(), user.getUid());
+                BackupPreferences prefs = new BackupPreferences(requireContext(), user.getId());
                 boolean wifiOnly = binding.switchWifiOnly.isChecked();
                 prefs.setBackupEnabled(true);
                 prefs.setWifiOnly(wifiOnly);
@@ -55,9 +57,9 @@ public class BackupOnboardingDialog extends BottomSheetDialogFragment {
         });
 
         binding.btnNotNow.setOnClickListener(v -> {
-            FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
+            UserInfo user = authRepository.getCurrentUser();
             if (user != null && getContext() != null) {
-                BackupPreferences prefs = new BackupPreferences(requireContext(), user.getUid());
+                BackupPreferences prefs = new BackupPreferences(requireContext(), user.getId());
                 prefs.setBackupEnabled(false);
                 prefs.setOnboardingShown(true);
                 if (listener != null) listener.onSkipBackup();

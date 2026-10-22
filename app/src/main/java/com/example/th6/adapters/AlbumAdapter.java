@@ -11,6 +11,7 @@ import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.bumptech.glide.Glide;
+import com.bumptech.glide.request.RequestOptions;
 import com.example.th6.R;
 import com.example.th6.models.Album;
 
@@ -53,14 +54,19 @@ public class AlbumAdapter extends RecyclerView.Adapter<AlbumAdapter.AlbumViewHol
         holder.tvAlbumCount.setText(context.getResources().getQuantityString(R.plurals.album_photo_count,
                 album.getPhotoCount(), album.getPhotoCount()));
 
-        if (album.getCoverImageUrl() != null && !album.getCoverImageUrl().isEmpty()) {
-            Glide.with(context)
-                    .load(album.getCoverImageUrl())
-                    .placeholder(R.drawable.ic_photo_placeholder)
-                    .error(R.drawable.ic_photo_placeholder)
-                    .centerCrop()
-                    .into(holder.imgAlbumCover);
+        String cover = album.getDisplayCoverUri() != null && !album.getDisplayCoverUri().isEmpty()
+                ? album.getDisplayCoverUri() : album.getCoverImageUrl();
+        if (cover != null && !cover.isEmpty()) {
+            if (album.getDisplayCoverVideo()) {
+                Glide.with(context).asBitmap().load(cover)
+                        .apply(RequestOptions.frameOf(1_000_000))
+                        .placeholder(R.drawable.ic_photo_placeholder).error(R.drawable.ic_photo_placeholder)
+                        .centerCrop().into(holder.imgAlbumCover);
+            } else Glide.with(context).load(cover)
+                    .placeholder(R.drawable.ic_photo_placeholder).error(R.drawable.ic_photo_placeholder)
+                    .centerCrop().into(holder.imgAlbumCover);
         } else {
+            Glide.with(context).clear(holder.imgAlbumCover);
             holder.imgAlbumCover.setImageResource(R.drawable.ic_photo_placeholder);
         }
 

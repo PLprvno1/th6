@@ -30,11 +30,37 @@
 
     </LinearLayout>
 
+    <LinearLayout
+        android:id="@+id/layoutTrashSelection"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_below="@id/headerLayout"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingHorizontal="12dp"
+        android:paddingVertical="6dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/tvTrashSelectedCount"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Đã chọn 0"
+            android:textColor="@color/text_primary_light"
+            android:textStyle="bold" />
+
+        <Button android:id="@+id/btnTrashSelectAll" android:layout_width="wrap_content" android:layout_height="wrap_content" android:minWidth="0dp" android:text="Chọn tất cả" />
+        <Button android:id="@+id/btnTrashClearSelection" android:layout_width="wrap_content" android:layout_height="wrap_content" android:minWidth="0dp" android:text="Bỏ chọn" />
+        <ImageButton android:id="@+id/btnTrashExitSelection" android:layout_width="40dp" android:layout_height="40dp" android:background="?attr/selectableItemBackgroundBorderless" android:contentDescription="Thoát chọn nhiều" android:src="@android:drawable/ic_menu_close_clear_cancel" />
+    </LinearLayout>
+
     <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
         android:id="@+id/swipeRefresh"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_below="@+id/headerLayout">
+        android:layout_below="@id/layoutTrashSelection"
+        android:layout_above="@id/layoutTrashBulkActions">
 
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/rvTrashPhotos"
@@ -44,6 +70,20 @@
             android:padding="6dp" />
 
     </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+
+    <LinearLayout
+        android:id="@+id/layoutTrashBulkActions"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_alignParentBottom="true"
+        android:gravity="center"
+        android:orientation="horizontal"
+        android:padding="8dp"
+        android:visibility="gone">
+
+        <Button android:id="@+id/btnTrashBulkRestore" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="Khôi phục" />
+        <Button android:id="@+id/btnTrashBulkDelete" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_marginStart="8dp" android:layout_weight="1" android:text="Xóa vĩnh viễn" />
+    </LinearLayout>
 
     <LinearLayout
         android:id="@+id/layoutEmpty"

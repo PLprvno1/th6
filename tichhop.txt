@@ -1,0 +1,151 @@
+PHOTO VAULT — BÁO CÁO AUDIT CHUẨN BỊ TÍCH HỢP NHẬN DIỆN KHUÔN MẶT
+Ngày audit: 2026-10-22
+Phạm vi: chỉ đọc source, cấu hình, tài nguyên và file SQL; không triển khai tính năng.
+
+1. MỤC ĐÍCH VÀ PHẠM VI AUDIT
+Đánh giá khả năng thêm mục “Người & Thú cưng”: nguồn ảnh, quét/hiển thị, model và schema, xác thực, xử lý nền, hiệu năng, riêng tư và các điểm tích hợp. Phân biệt phát hiện đã xác minh với nhận định/đề xuất. Không thấy thành phần nhận diện khuôn mặt nào trong source/dependency hiện tại.
+
+2. TỔNG QUAN CẤU TRÚC
+- Thư mục gốc: F:\th6. Gradle project có module Android :app (settings.gradle.kts).
+- App dùng Java và Kotlin: Activity/Fragment/Adapter, ViewModel, repository, service/Worker, model và XML.
+- Điểm vào SplashActivity rồi MainActivity. MainActivity điều hướng bottom nav Library, Album, Trash, Favorites, Profile.
+- app/build.gradle.kts: compileSdk 36, minSdk 24, targetSdk 35, Java 11, ViewBinding. gradle/libs.versions.toml khai AGP 9.3.3 và Kotlin 2.4.21; root build.gradle.kts khai plugin Kotlin serialization 2.1.0 riêng. Cần kiểm tra tương thích plugin ở giai đoạn build tích hợp.
+- Không có module nhận diện, Room database hay model AI. Có SQLiteOpenHelper cho ledger upload.
+
+3. CÔNG NGHỆ VÀ DEPENDENCY HIỆN TẠI
+- Supabase Kotlin SDK BOM 3.0.3: Auth, PostgREST, Storage; Ktor Android client 3.6.0; Kotlin serialization 1.7.3.
+- Glide 4.16.0; WorkManager 2.9.0; Material, AppCompat, ConstraintLayout.
+- Media3 ExoPlayer/UI/Transformer/effect 1.3.1 xử lý video.
+- Không có ML Kit Face Detection, TensorFlow Lite/LiteRT, MediaPipe Face, ONNX Runtime, OpenCV hay model embedding.
+- Không cần CameraX cho quét ảnh tĩnh. Manifest không khai CAMERA; inference từ ảnh thư viện không tự đòi quyền camera.
+
+4. FILE QUAN TRỌNG VÀ VAI TRÒ
+- app/src/main/java/com/example/th6/services/DevicePhotoScanner.java — truy vấn MediaStore, tạo LocalMediaPhoto.
+- app/src/main/java/com/example/th6/models/LocalMediaPhoto.java — media thiết bị và liên kết cloud.
+- app/src/main/java/com/example/th6/models/Photo.kt — metadata media cloud.
+- app/src/main/java/com/example/th6/fragments/LibraryFragment.java — quyền đọc, quét, gộp local/cloud, timeline/sort và mở media.
+- app/src/main/java/com/example/th6/adapters/LocalPhotoAdapter.java — thumbnail local/cloud, click và video marker.
+- app/src/main/java/com/example/th6/activities/PhotoDetailActivity.java — xem ảnh, fallback local/cloud, collection thumbnail.
+- app/src/main/java/com/example/th6/activities/PhotoEditorActivity.java, app/src/main/java/com/example/th6/utils/BitmapEditor.java, app/src/main/java/com/example/th6/models/AdjustmentSettings.java và PhotoEditState.java — chỉnh sửa ảnh.
+- app/src/main/java/com/example/th6/data/PhotoRepository.kt — query/CRUD Supabase.
+- app/src/main/java/com/example/th6/data/StorageRepository.kt — upload/xóa Supabase Storage.
+- app/src/main/java/com/example/th6/data/AuthRepository.kt và SupabaseManager.kt — session/auth/client.
+- app/src/main/java/com/example/th6/services/PhotoBackupManager.java, PhotoBackupWorker.java, BackupWorkScheduler.java, BackupUploadLedger.java — queue, worker, schedule và ledger.
+- app/src/main/java/com/example/th6/activities/SearchActivity.java, fragments/AlbumFragment.java, activities/AlbumDetailActivity.java, fragments/FavoritesFragment.java, fragments/TrashFragment.java — các luồng cloud.
+- app/src/main/AndroidManifest.xml — quyền và khai báo component; PHOTOVAULT_SUPABASE_FINAL_RESET.sql — schema tham khảo trong repo.
+
+5. LUỒNG ẢNH LOCAL/CLOUD
+5.1 Local — đã xác minh
+DevicePhotoScanner.scanPhotos() quét nền bằng một static single-thread ExecutorService. Truy vấn toàn bộ MediaStore.Images và MediaStore.Video ngoài; lấy _ID, DISPLAY_NAME, MIME_TYPE, SIZE, WIDTH/HEIGHT, DATE_TAKEN, DATE_ADDED, DATE_MODIFIED và DURATION cho video. Tạo content:// URI qua ContentUris. Capture timestamp ưu tiên DATE_TAKEN, rồi DATE_ADDED/DATE_MODIFIED; dateModified được giữ làm revision signal.
+
+5.2 Cloud — đã xác minh
+LibraryFragment.scanDeviceGallery() gọi scan khi mở/làm mới; sau scan gọi loadCloudPhotosForCurrentUser(). Khi có session, PhotoRepository.getPhotosByUserAsync(uid) lấy bảng photos. mergeLocalAndCloud() ghép theo local_media_uri, local_media_id rồi content_hash nếu cloud có hash. Cloud-only item có contentUri rỗng, cloudUrl/cloudPhoto được gắn; metadata Photo không có kích thước/độ phân giải nên các trường này có thể thiếu.
+
+LocalPhotoAdapter dùng Glide: URI thiết bị trước, cloudUrl cho cloud-only image; video lấy thumbnail frame từ URI local. PhotoDetailActivity.displayCurrentImage() ưu tiên local_media_uri rồi fallback media_url. Ảnh cloud được Glide tải/giải mã, nhưng không có pipeline riêng để stream một crop cloud vào AI. Cloud-only inference cần tải/giải mã tạm; giới hạn concurrency/cache.
+
+5.3 Scan, bộ nhớ, trùng lặp — đã xác minh và nhận định
+Scan hiện là full MediaStore query thành List; không thấy paging hoặc ContentObserver/incremental scan. Library scan lại trong onResume và sau refresh. RecyclerView/Glide dùng cho thumbnail. PhotoEditorActivity preview dùng Glide override 1800x1800, còn lưu ảnh tải bitmap SIZE_ORIGINAL; editor bắt OutOfMemoryError. Không dùng pipeline export editor cho batch scan.
+
+Ghép local/cloud dựa URI/id/hash trong LibraryFragment và PhotoBackupManager. SHA-256 đọc toàn bộ file tuần tự qua InputStream, không giữ byte array cả file nhưng vẫn tốn I/O; hash chỉ được tính khi cloud đã có content_hash. Chưa thấy index hash/face chung hoặc incremental detector scan.
+
+6. MODEL ẢNH, DATABASE VÀ CRUD
+Photo.kt ánh xạ: id, user_id (ownerUid), title (name), media_url, created_at, media_type, is_favorite, is_trashed, trashed_at, local_media_id, local_media_uri, local_date_modified, album_ids, storage_provider, content_hash, storage_path. displayUrl là @Transient. LocalMediaPhoto giữ URI, tên, MIME, size, dimensions, ngày, video/duration, backup/cloud fields.
+
+PhotoRepository có CRUD/query photos; album_ids ở row photos. Album.kt ánh xạ id/owner_uid/name/created_at/cover_image_url/photo_count; UserProfile.kt ánh xạ uid/display_name/email/photo_url/created_at. Chưa thấy face id, bounding box, embedding, person/group id, model version, quality hoặc processing state.
+
+PHOTOVAULT_SUPABASE_FINAL_RESET.sql định nghĩa photos/albums/users, không có bảng face. photos.user_id và albums.owner_uid tham chiếu auth.users; RLS giới hạn theo auth.uid. SQL khai photos_bucket public, các policy ghi/xóa giới hạn chủ sở hữu. Đây chỉ là file trong repo; không xác minh được SQL đã chạy trên Supabase đang dùng. Không truy cập schema live/dashboard trong audit. Không cần sửa schema ở giai đoạn này.
+
+7. AUTH VÀ LIÊN KẾT TÀI KHOẢN
+MainActivity chờ AuthRepository.checkIsLoggedInAsync(); nếu session thiếu thì điều hướng Login. SupabaseManager cài Auth/Postgrest/Storage; source đã đọc có project URL và publishable key, không thấy service-role key. UI query media cloud theo uid; RLS là lớp giới hạn server-side.
+
+LocalMediaPhoto không gắn uid; backup/merge dùng uid riêng. Face index local phải namespace theo uid, khóa/clear khi logout hoặc đổi account, không để lộ cluster của phiên trước. RLS hiện tại chưa chứng minh có thể bảo vệ face data nếu chưa có bảng/policies tương ứng.
+
+8. GOOGLE ML KIT FACE DETECTION
+Đề xuất dùng ML Kit Face Detection cho bước phát hiện vị trí mặt, landmark/contour/classification tùy nhu cầu. Nó không xác định danh tính, không sinh embedding và không gom nhóm.
+
+Tài liệu Google hiện nêu Android min API 23; minSdk dự án 24 đáp ứng. Bundled: com.google.mlkit:face-detection:16.1.7, model sẵn/offline nhưng tăng APK khoảng 6.9 MB theo tài liệu. Unbundled Play Services: com.google.android.gms:play-services-mlkit-face-detection:17.1.0, tăng app khoảng 800 KB nhưng model cần có trên Play Services; lần đầu offline có thể chưa chạy được. Chọn theo offline-first, APK size và thiết bị không có Play Services. Tài liệu: https://developers.google.com/ml-kit/vision/face-detection/android ; giới hạn: https://developers.google.com/ml-kit/vision/face-detection/ . Google nêu ảnh đầu vào tối thiểu 480x360 và mặt nên khoảng 100x100 px trở lên để detector hoạt động tốt; đây không phải cam kết độ chính xác.
+
+Cần xử lý EXIF/orientation và ánh xạ bounding box về ảnh gốc. Không cần contours nếu chỉ tạo crop. Tài liệu ML Kit nêu contours chỉ cho khuôn mặt nổi bật nhất trong ảnh; ảnh nhiều người cần dùng boxes/landmarks phù hợp.
+
+9. EMBEDDING, LITERT VÀ MODEL LICENSE
+Face embedding là bước tách biệt sau detector. MobileFaceNet là một ứng viên, không phải detector. Pipeline phải xác minh với đúng artifact: tensor input/output, RGB/BGR, resize/alignment, normalization, L2-normalization; không giả định mọi export có cùng shape.
+
+Qualcomm AI Hub Models công bố một MobileFaceNet cụ thể: input 112x112, embedding 128 chiều; có TFLite fetch option. Đây là đặc tính model đó, không phải mọi MobileFaceNet. Tài liệu: https://github.com/qualcomm/ai-hub-models/blob/main/src/qai_hub_models/models/mobile_facenet/README.md . Repo foamliu có implementation và LICENSE Apache-2.0: https://github.com/foamliu/MobileFaceNet . License code không chứng minh license của weights, dataset huấn luyện, file TFLite hoặc artifact bên thứ ba; cần kiểm tra provenance và quyền phân phối/thương mại trước khi phát hành.
+
+LiteRT là runtime, không phải model. Tài liệu Google hiện mô tả com.google.ai.edge.litert:litert:2.3.0 / CompiledModel API, Android min 24+; CPU baseline, accelerator GPU/NPU tùy thiết bị. Interpreter còn để tương thích; CompiledModel API mới được ưu tiên cho LiteRT 2.x. Nguồn: https://developers.google.com/edge/litert/overview ; https://developers.google.com/edge/litert/android ; https://developers.google.cn/edge/litert/migration . Cần khóa version và xác minh với AGP/Kotlin/ABI khi triển khai. Chưa có model trong project để xác minh size/tensor/operator/latency/memory/delegate. Không tuyên bố hiệu năng hoặc accuracy chung từ benchmark vendor là kết quả PhotoVault.
+
+On-device chạy offline khi model/runtime đã sẵn; unbundled model lần đầu có thể cần mạng. Giữ CPU fallback; chỉ bật GPU/NPU sau đo trên thiết bị mục tiêu. Không có model nào được tải hay tích hợp trong audit.
+
+10. FACE CLUSTERING
+Luồng phải tách detection → embedding → clustering. L2-normalize vectors, dùng cosine similarity và hiệu chỉnh ngưỡng trên ảnh có đồng ý/đại diện; không dùng ngưỡng cố định như đảm bảo đúng. Đề xuất:
+- Mặt nhỏ/mờ/che khuất vào “chưa phân nhóm”; người dùng xác nhận.
+- So với nhiều mẫu đại diện/prototype; kiểm tra khoảng cách khi merge để tránh chaining.
+- Cho phép đặt tên, đổi cover, merge, split và sửa nhận diện nhầm.
+- Góc, ánh sáng, tuổi, kính/khẩu trang, ảnh nhiều người, trẻ em và người giống nhau tạo sai số. Cần “báo sai”, không tự khẳng định danh tính.
+- Hỗ trợ thú cưng cần model/detector riêng; face detection người không đáp ứng tính năng đó.
+
+11. PHƯƠNG ÁN LƯU FACE DATA
+A. Chỉ local (khuyến nghị bản đầu): DB riêng chứa face id, local photo key, normalized bbox, quality, model version, group và mapping face→group. Embedding lưu mã hóa AES-GCM với key Android Keystore. Ưu: offline, không upload vector, không cần đổi cloud schema. Nhược: mất app data thì mất index; file/URI có thể bị xóa hoặc mất quyền; không tự đồng bộ identity giữa thiết bị.
+B. Đồng bộ metadata nhóm Supabase: group id ổn định, owner uid, display name, optional representative photo reference, timestamps; association face/photo chỉ sau privacy review. RLS per-user; face crop nếu có phải private. Không upload embedding. Chỉ sync tên/group metadata không đủ để thiết bị mới tự nhận ra cluster local nếu không chạy matching hoặc người dùng liên kết thủ công. Cần xử lý rename/merge conflict/version và delete.
+C. Hybrid embedding local + metadata cloud: giảm dữ liệu nhạy cảm gửi đi nhưng cross-device matching vẫn thiếu mapping; người dùng có thể phải index lại và xác nhận thủ công.
+Không lưu embedding/crop vào public photos_bucket. Không có lựa chọn nào được triển khai.
+
+12. UI “NGƯỜI & THÚ CƯNG” VÀ ĐIỀU HƯỚNG
+MainActivity có bottom nav Library/Album/Trash/Favorites/Profile. LibraryFragment có overflow options_menu_library.xml với search, backup, sort. Có thể thêm People trong Library nav/menu hoặc tab phụ, không phải thay PhotoDetailActivity.
+
+SearchActivity tải cloud photos theo uid rồi filter chuỗi Photo.name trong filterPhotos(); không tìm MediaStore local, không truy vấn khuôn mặt. Favorites/Trash/Album chủ yếu query cloud PhotoRepository và filter metadata. LibraryFragment là nguồn phù hợp hơn để tạo index gộp local/cloud.
+
+Kết quả khuôn mặt có thể mở ảnh gốc bằng PhotoDetailActivity.createIntent(context,current,collection). Với local, tạo Photo mang content URI; với cloud, dùng Photo hiện có. Xác minh URI còn đọc được và file chưa bị xóa. Không chạy inference trong adapter/bind/UI thread. Cập nhật UI sau mỗi batch commit qua callback main-thread/observable state.
+
+13. NỀN, HIỆU NĂNG VÀ MỞ RỘNG
+Hiện có Executor scan/merge, coroutine Dispatchers.IO trong repository và WorkManager backup. PhotoBackupWorker là Worker đồng bộ, unique immediate/periodic theo uid, network/Wi-Fi constraints, retry exponential, progress data, stop checks, run lock, upload tuần tự và giới hạn 8 phút mỗi run. BackupWorkScheduler lặp mỗi 6 giờ, không thấy yêu cầu sạc/idle. BackupUploadLedger SQLite giữ URI/modified/url khi object đã upload mà metadata chưa lưu.
+
+Đề xuất Worker riêng cho face indexing, unique theo uid + model version, xử lý từng ảnh/crop, batch nhỏ, checkpoint per image, progress/cancel/retry, resume sau process death. Không thêm nhận diện vào PhotoBackupWorker. Index local dựa uri/id + local_date_modified/hash và model/preprocess version; xử lý xóa/đổi file và quyền revoked. Giới hạn concurrency/bitmap LRU; không giữ tất cả bitmap. Cloud-only ảnh cần tải có thể retry khi offline. Thư viện thực tế chưa biết nên không ước lượng thời gian/RAM/pin.
+
+14. RIÊNG TƯ
+Embedding có thể liên kết danh tính, coi là dữ liệu nhạy cảm. Đề xuất opt-in và giải thích rõ; xử lý on-device; không upload ảnh/crop/vector mặc định; mã hóa, account-scope, clear theo logout/xóa index, cleanup mapping khi xóa ảnh/nhóm; không ghi embedding vào logs/crash reports.
+
+Manifest có allowBackup=true. backup_rules.xml và data_extraction_rules.xml là mẫu rỗng/comment, chưa loại trừ dữ liệu biometric. Nếu tạo DB embedding, cần exclusion khỏi Auto Backup/device transfer hoặc phương án phục hồi có consent. Quyền hiện có: READ_MEDIA_IMAGES, READ_MEDIA_VIDEO, READ_MEDIA_VISUAL_USER_SELECTED, READ_EXTERNAL_STORAGE max 32, WRITE_EXTERNAL_STORAGE max 28. Không khai CAMERA. Tôn trọng partial access và revoked URI.
+
+15. THAY ĐỔI CÓ THỂ CẦN VỀ SAU (CHƯA LÀM)
+- Dependency ML Kit bundled hoặc Play Services; LiteRT runtime và accelerator tùy chọn; xác minh Google Maven, ABI, APK size, AGP/Kotlin.
+- Model asset có license/provenance và model card.
+- DB local Room/SQLite, schema/version/checkpoint/crypto/backup exclusion; Room hiện không có.
+- Permission hiện tại đủ cho media đã được cấp. Không cần camera cho ảnh tĩnh; picker/cloud URI có thể cần xử lý grant/download.
+- Nếu sync: migration face_groups/associations, RLS per row, owner uid, deletion/version/conflict; bucket private cho asset riêng tư. Không dùng public photos_bucket.
+
+16. RỦI RO VÀ GIỚI HẠN
+- Chưa đọc được Supabase live schema/policies; SQL repo không chứng minh production đã áp dụng.
+- Chưa chốt TFLite artifact, preprocessing và quyền thương mại của weights/dataset.
+- Không có bộ ảnh test, consent, device matrix, tiêu chí precision/recall hoặc quy mô thư viện; không thể khẳng định accuracy/latency/RAM.
+- Full scan/hash tạo I/O lớn; editor decode ảnh gốc có thể OOM.
+- Bucket ảnh public không phù hợp chứa crop/embedding.
+- Clustering nhầm có hệ quả riêng tư; cần confirm, merge/split, delete và test account switch.
+- Android backup bật nhưng chưa có exclusion cho face data.
+
+17. THÔNG TIN CÒN THIẾU VÀ CÁCH XÁC MINH
+1) Schema/RLS/bucket live: dashboard hoặc truy vấn chỉ đọc được cấp quyền, so với SQL; quan trọng cho bảo mật.
+2) Artifact/license/model dataset: khóa commit/file, model card/LICENSE/provenance, review phân phối thương mại.
+3) Tensor/preprocess/performance: chạy validator đúng model, benchmark CPU và accelerator trên thiết bị đại diện.
+4) Quy mô và định dạng ảnh (HEIC/RAW/ảnh lớn), tỷ lệ cloud-only: đo trên tập có đồng ý.
+5) Đặc tả “Người & Thú cưng”: quyết định pet detection riêng, UX xác nhận và sync.
+6) Retention/logout/account deletion/backup: quyết định sản phẩm và bảo mật trước schema.
+7) Photo Picker URI/cloud-only fetch: test API 24/29/33/34/35, quyền/grant/revocation.
+8) AGP/Kotlin compatibility: build sạch trên CI trước khi thêm dependency. Audit không chạy build vì read-only.
+
+18. LỘ TRÌNH TASK ĐỀ XUẤT
+1) Chốt privacy, consent, people/pets, offline, UX confirm/merge/split và sync.
+2) Duyệt detector/embedding artifact, license, tensor/preprocess; lập validator offline.
+3) Xây detector, kiểm thử EXIF/rotation/bbox và decode có giới hạn.
+4) Tạo local index DB, encryption, account scope, checkpoint, backup exclusion và delete.
+5) Tạo Worker riêng: batch, progress, cancellation, retry/resume, quyền revoked/logout.
+6) Thêm embedding và clustering đã hiệu chỉnh; unknown group, confirm, merge/split, regression test.
+7) UI People/search; kết quả mở PhotoDetailActivity; kiểm tra local/cloud/album/favorite/trash.
+8) Nếu cần sync: schema/RLS/private asset và security review, test hai thiết bị/conflict/delete.
+9) Test API 24/29/33/34/35, offline, model download, hàng nghìn ảnh, ảnh lớn/HEIC, low RAM, kill/restart, account switch, xóa ảnh/nhóm.
+
+19. KẾT LUẬN
+Có thể tích hợp theo hướng on-device: ML Kit để phát hiện vị trí mặt, embedding model LiteRT có quyền phân phối rõ ràng, index/clustering local tách biệt khỏi Photo/backup. minSdk 24 phù hợp với mức API hiện nêu trong tài liệu ML Kit/LiteRT. Chưa nên phát hành embedding model trước khi chốt artifact/license, preprocessing và tiêu chí đánh giá. ML Kit không nhận dạng người; clustering và UX xác nhận là phần PhotoVault tự xây. Khuyến nghị bản đầu lưu vector local mã hóa, không sync embedding; cân nhắc metadata nhóm cloud sau khi có consent, RLS/schema và yêu cầu cross-device rõ ràng.
+
+XÁC NHẬN PHẠM VI
+Chỉ tạo file báo cáo tichhop.txt theo ngoại lệ được task cho phép. Không sửa source, resource, build config/dependency; không thay đổi/chạy SQL, database, Storage, Auth hay dữ liệu người dùng; không tải model vào app.

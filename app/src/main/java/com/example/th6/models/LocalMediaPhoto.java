@@ -17,6 +17,7 @@ public class LocalMediaPhoto implements Serializable {
     private int width;
     private int height;
     private long dateModified;
+    private long dateTaken;
     private boolean isVideo;
     private long durationMs;
     private String backupStatus;
@@ -67,6 +68,9 @@ public class LocalMediaPhoto implements Serializable {
 
     public long getDateModified() { return dateModified; }
     public void setDateModified(long dateModified) { this.dateModified = dateModified; }
+    public long getDateTaken() { return dateTaken; }
+    public void setDateTaken(long dateTaken) { this.dateTaken = dateTaken; }
+    public long getTimelineTimestamp() { return dateTaken > 0 ? dateTaken : dateModified; }
 
     public boolean isVideo() { return isVideo; }
     public void setVideo(boolean video) { isVideo = video; }

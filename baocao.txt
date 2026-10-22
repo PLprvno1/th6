@@ -1,0 +1,478 @@
+================================================================================
+BÁO CÁO KHẢO SÁT VÀ ĐÁNH GIÁ KỸ THUẬT DỰ ÁN PHOTOVAULT
+================================================================================
+Ngày thực hiện: 30/03/2025
+Người khảo sát: Senior Android Engineer
+Tài liệu tham chiếu mã nguồn project: PhotoVault (Package: com.example.th6)
+
+--------------------------------------------------------------------------------
+PHẦN 1. THÔNG TIN TỔNG QUAN
+--------------------------------------------------------------------------------
+1.1. Cấu hình Dự án & Công nghệ
+- Tên Project: th6 (Tên ứng dụng hiển thị: PhotoVault)
+- Package Name / Application ID: com.example.th6
+- Phân loại module: Module đơn (:app)
+- Android Gradle Plugin (AGP): 9.3.3
+- Compile SDK: 36 (Android 15 / Baklava)
+- Target SDK: 35 (Android 15)
+- Min SDK: 24 (Android 7.0 Nougat)
+- Ngôn ngữ lập trình: Java 11 (Java-based Android app)
+- Giao diện UI: XML Layouts + ViewBinding + Material Design Components 3
+- Quản lý phụ thuộc: Gradle Version Catalog (gradle/libs.versions.toml) + Gradle Kotlin DSL (build.gradle.kts)
+- Dịch vụ Nền tảng (Backend/Cloud):
+  + Firebase Auth (BOM 33.9.0): Đăng ký, đăng nhập, quên mật khẩu, quản lý hồ sơ.
+  + Firebase Firestore: Lưu trữ metadata ảnh, album, thông tin người dùng.
+  + ImgBB Upload API (REST API qua OkHttp 4.12.0): Lưu trữ file ảnh thực tế trên cloud.
+  + SQLite Local Database (BackupUploadLedger): Sổ cái nhật ký tạm lưu trạng thái upload ảnh.
+  + WorkManager 2.9.0: Quản lý tác vụ sao lưu nền tự động (PeriodicWorkRequest & OneTimeWorkRequest).
+  + Glide 4.16.0: Tải, hiển thị, cache ảnh & thumbnail.
+  + androidx.media3 (ExoPlayer, UI, Transformer 1.3.1): Phát video và cắt/xuất video mp4.
+
+1.2. Mục tiêu Ứng dụng
+PhotoVault là ứng dụng quản lý thư viện phương tiện (Ảnh/Video) tích hợp điện toán đám mây. Ứng dụng kết hợp việc hiển thị thư viện cục bộ (MediaStore) với thư viện cloud (ImgBB + Firestore), hỗ trợ người dùng xem ảnh/video, tạo album, đánh dấu yêu thích, thùng rác tạm thời, trình chiếu ảnh, chỉnh sửa ảnh chuyên sâu (Crop, Draw, Rotate, Filters, Fine Adjustments), cắt/chỉnh sửa video, cũng như tự động sao lưu nền ảnh cục bộ lên đám mây thông qua WorkManager.
+
+1.3. Tổng quan Kiến trúc Hiện tại
+- Dự án chưa áp dụng kiến trúc chuẩn như MVVM hay Clean Architecture với ViewModel/LiveData/Flow.
+- Kiến trúc thực tế là Event-driven / Controller-based dựa trên Activity - Fragment - Helper/Manager/Service:
+  + UI Layer: `MainActivity` đóng vai trò Host Container điều hướng BottomNavigationView giữa 5 Fragment chính (`LibraryFragment`, `AlbumFragment`, `FavoritesFragment`, `TrashFragment`, `ProfileFragment`).
+  + Screen Layer: Các Activity độc lập xử lý màn hình phụ (`PhotoDetailActivity`, `PhotoEditorActivity`, `VideoPlayerActivity`, `VideoEditorActivity`, `BackupCenterActivity`, `AlbumDetailActivity`, `SearchActivity`, `SettingsActivity`, `SlideshowActivity`, `LoginActivity`, `RegisterActivity`, `ForgotPasswordActivity`, `SplashActivity`).
+  + Adapter Layer: `LocalPhotoAdapter`, `PhotoAdapter`, `AlbumAdapter`, `PhotoThumbnailAdapter`.
+  + Data & Service Layer:
+    * `FirestoreRepository`: Đóng gói toàn bộ thao tác CRUD tới Cloud Firestore.
+    * `DevicePhotoScanner`: Quét MediaStore lấy danh sách ảnh/video local bất đồng bộ.
+    * `ImgBBUploadService`: Đóng gói HTTP Client gửi multipart/form-data lên ImgBB REST API.
+    * `PhotoBackupManager`: Tính toán giao thoa giữa MediaStore và Firestore để lập hàng đợi sao lưu.
+    * `PhotoBackupWorker`: WorkManager Worker thực thi quá trình upload ảnh nền.
+    * `BackupUploadLedger`: SQLite Database lưu tạm URL ảnh ImgBB đã upload thành công trước khi ghi metadata vào Firestore (chống upload lặp khi Worker bị dừng).
+    * `BackupWorkScheduler`: Lập lịch WorkManager nền.
+
+--------------------------------------------------------------------------------
+PHẦN 2. CÂY THƯ MỤC VÀ CÁC FILE QUAN TRỌNG
+--------------------------------------------------------------------------------
+2.1. Cấu trúc Cây Thư mục
+app/src/main/
+├── AndroidManifest.xml
+├── java/com/example/th6/
+│   ├── MainActivity.java
+│   ├── activities/
+│   │   ├── AlbumDetailActivity.java
+│   │   ├── BackupCenterActivity.java
+│   │   ├── ForgotPasswordActivity.java
+│   │   ├── LoginActivity.java
+│   │   ├── PhotoDetailActivity.java
+│   │   ├── PhotoEditorActivity.java
+│   │   ├── RegisterActivity.java
+│   │   ├── SearchActivity.java
+│   │   ├── SettingsActivity.java
+│   │   ├── SlideshowActivity.java
+│   │   ├── SplashActivity.java
+│   │   ├── VideoEditorActivity.java
+│   │   └── VideoPlayerActivity.java
+│   ├── adapters/
+│   │   ├── AlbumAdapter.java
+│   │   ├── LocalPhotoAdapter.java
+│   │   ├── PhotoAdapter.java
+│   │   └── PhotoThumbnailAdapter.java
+│   ├── data/
+│   │   └── FirestoreRepository.java
+│   ├── fragments/
+│   │   ├── AlbumFragment.java
+│   │   ├── BackupOnboardingDialog.java
+│   │   ├── FavoritesFragment.java
+│   │   ├── LibraryFragment.java
+│   │   ├── PhotoInfoBottomSheetDialog.java
+│   │   ├── ProfileFragment.java
+│   │   └── TrashFragment.java
+│   ├── models/
+│   │   ├── AdjustmentSettings.java
+│   │   ├── Album.java
+│   │   ├── LocalMediaPhoto.java
+│   │   ├── Photo.java
+│   │   ├── PhotoEditState.java
+│   │   └── UserProfile.java
+│   ├── services/
+│   │   ├── BackupUploadLedger.java
+│   │   ├── BackupWorkScheduler.java
+│   │   ├── DevicePhotoScanner.java
+│   │   ├── ImgBBUploadService.java
+│   │   ├── PhotoBackupManager.java
+│   │   └── PhotoBackupWorker.java
+│   ├── utils/
+│   │   ├── BackupPreferences.java
+│   │   ├── BitmapEditor.java
+│   │   ├── DateFormatter.java
+│   │   ├── ImageSaveUtils.java
+│   │   ├── PhotoTimelineUtils.java
+│   │   ├── PreferencesManager.java
+│   │   ├── VideoDurationFormatter.java
+│   │   └── VideoSaveUtils.java
+│   └── views/
+│       ├── CropOverlayView.java
+│       └── DrawingOverlayView.java
+└── res/
+    ├── color/ & color-night/
+    ├── drawable/ (các icon ic_*.xml, background bg_*.xml)
+    ├── layout/ (25 file layout XML)
+    ├── menu/ (bottom_nav_menu.xml, options_menu_library.xml, context_menu_photo.xml)
+    └── values/ (strings.xml, colors.xml, themes.xml, plurals)
+
+2.2. Trách nhiệm Các File Quan trọng
+- `MainActivity.java`: Khởi tạo ứng dụng, kiểm tra đăng nhập để kích hoạt WorkManager, điều hướng giữa 5 Fragment chính.
+- `LibraryFragment.java`: Màn hình cốt lõi của ứng dụng. Xin quyền READ_MEDIA, quét MediaStore, lấy ảnh cloud từ Firestore, thực hiện gộp (merge) hiển thị theo mốc thời gian (Tất cả/Ngày/Tháng/Năm), chế độ chọn nhiều (Multi-select), chia sẻ, đưa vào album, xóa local.
+- `PhotoEditorActivity.java`: Trình chỉnh sửa ảnh nâng cao. Quản lý trạng thái Undo/Redo bằng Stack, điều chỉnh thông số màu sắc (Exposure, Brightness, Contrast, Saturation, Highlights, Shadows, Temp, Tint), áp dụng bộ lọc (Vivid, Warm, Cool, Mono, Dramatic, Fade), Cắt ảnh (CropOverlayView), Vẽ tự do (DrawingOverlayView), Xoay/Lật. Xuất ảnh lưu bản sao hoặc ghi đè (MediaStore).
+- `PhotoBackupWorker.java`: Worker chạy nền của WorkManager thực hiện sao lưu ảnh tự động. Kiểm tra điều kiện, quét ảnh chưa upload, tải lên ImgBB qua `ImgBBUploadService`, ghi nhận vào SQLite `BackupUploadLedger`, sau đó lưu metadata idempotent vào Firestore (`backup_<sha256(uri)>`).
+- `ImgBBUploadService.java`: Dịch vụ gửi HTTP Multipart POST lên API ImgBB (`https://api.imgbb.com/1/upload`), hỗ trợ retry lũy thừa (exponential backoff) với lỗi kết nối mạng.
+- `FirestoreRepository.java`: Thực thi toàn bộ lệnh CRUD Firestore trên 3 collection: `users`, `users/{uid}/photos`, `users/{uid}/albums`.
+
+--------------------------------------------------------------------------------
+PHẦN 3. KIẾN TRÚC CHI TIẾT
+--------------------------------------------------------------------------------
+3.1. Phân tầng Thành phần & Luồng Gọi Hàm
+- Tầng UI / Controller (`LibraryFragment`, `PhotoDetailActivity`, `PhotoEditorActivity`, v.v.):
+  Lắng nghe sự kiện tương tác người dùng, gọi `DevicePhotoScanner` để đọc dữ liệu đĩa cục bộ, gọi `FirestoreRepository` để truy vấn/cập nhật đám mây.
+- Tầng Xử lý Dữ liệu Local (`DevicePhotoScanner`):
+  Sử dụng `ContentResolver` truy vấn `MediaStore.Images.Media` và `MediaStore.Video.Media` trên Thread Pool riêng (`SCAN_EXECUTOR`), trả về danh sách `LocalMediaPhoto` cho Main Thread.
+- Tầng Xử lý Cloud & Network (`ImgBBUploadService` & `FirestoreRepository`):
+  `ImgBBUploadService` dùng `OkHttpClient` với `UriRequestBody` stream nội dung tệp trực tiếp từ `ContentResolver` tới ImgBB API. Kết quả URL được trả về cho Callback.
+  `FirestoreRepository` cập nhật document tương ứng trên Firestore theo UID người dùng.
+
+3.2. Sơ đồ Luồng Điều hướng giữa các Màn hình
+- `SplashActivity` -> (Đã đăng nhập) -> `MainActivity`
+- `SplashActivity` -> (Chưa đăng nhập) -> `LoginActivity`
+- `LoginActivity` <-> `RegisterActivity` / `ForgotPasswordActivity` -> `MainActivity`
+- `MainActivity` (Bottom Nav):
+  ├── `LibraryFragment` -> `PhotoDetailActivity` / `VideoPlayerActivity` / `SearchActivity` / `BackupCenterActivity`
+  ├── `AlbumFragment` -> `AlbumDetailActivity` -> `PhotoDetailActivity`
+  ├── `FavoritesFragment` -> `PhotoDetailActivity`
+  ├── `TrashFragment` -> `PhotoDetailActivity`
+  └── `ProfileFragment` -> `SettingsActivity` / `BackupCenterActivity` / `LoginActivity` (Logout)
+- `PhotoDetailActivity` -> `PhotoEditorActivity` / `PhotoInfoBottomSheetDialog`
+- `VideoPlayerActivity` -> `VideoEditorActivity`
+
+3.3. Quản lý Bất đồng bộ & Trạng thái
+- Xử lý bất đồng bộ: Sử dụng Java `ExecutorService` (`Executors.newSingleThreadExecutor()`, `Executors.newFixedThreadPool(2)`) kết hợp với Android `Handler(Looper.getMainLooper())` để đẩy kết quả về UI thread.
+- Trạng thái UI (Loading / Success / Empty / Error):
+  + Hầu hết các màn hình dùng `ProgressBar` hiển thị trạng thái Loading.
+  + Layout `layoutEmpty` (với ImageView + TextView) hiển thị khi dữ liệu rỗng.
+  + Thông báo lỗi thông qua `Toast` hoặc `Snackbar` (có nút "Thử lại").
+
+--------------------------------------------------------------------------------
+PHẦN 4. DANH SÁCH CHỨC NĂNG
+--------------------------------------------------------------------------------
+4.1. Nhóm Tài khoản & Authentication
+- Trạng thái: Đã hoàn thiện mã nguồn.
+- Implement: `LoginActivity.java`, `RegisterActivity.java`, `ForgotPasswordActivity.java`, `ProfileFragment.java`.
+- Luồng hoạt động: Dùng `FirebaseAuth` đăng nhập/đăng ký bằng Email & Password. Khi đăng ký, lưu đồng thời thông tin vào Firebase Auth Profile (`updateProfile`) và Firestore Collection `users/{uid}`.
+- Đã làm: Đăng nhập, Đăng ký, Đổi tên hiển thị, Đổi ảnh đại diện (upload ImgBB -> lưu Auth/Firestore), Quên mật khẩu qua Email, Đăng xuất.
+- Còn thiếu: Đăng nhập bằng Google/Facebook, Xác thực Email trước khi đăng nhập, Đổi mật khẩu trong Profile.
+
+4.2. Nhóm Thư viện Local (MediaStore)
+- Trạng thái: Đã hoàn thiện mã nguồn.
+- Implement: `DevicePhotoScanner.java`, `LocalPhotoAdapter.java`, `LibraryFragment.java`.
+- Luồng hoạt động: Quét `MediaStore.Images.Media` và `MediaStore.Video.Media` phù hợp theo phiên bản Android (xử lý riêng SDK >= 29 Q volume external). Phân loại ảnh/video, hiển thị theo dòng thời gian (Timeline: Hôm nay, Hôm qua, Ngày, Tháng, Năm) bằng `PhotoTimelineUtils`.
+- Đã làm: Phân quyền READ_MEDIA_IMAGES / READ_MEDIA_VIDEO / READ_MEDIA_VISUAL_USER_SELECTED trên Android 13/14+. Hiển thị lưới 4 cột, hiển thị badge Play icon và thời lượng cho Video.
+- Còn thiếu: Phân trang (Paging) khi thư viện local có hàng chục nghìn ảnh (hiện tại nạp toàn bộ danh sách vào bộ nhớ).
+
+4.3. Nhóm Trình xem Ảnh / Video
+- Trạng thái: Đã hoàn thiện mã nguồn.
+- Implement: `PhotoDetailActivity.java`, `VideoPlayerActivity.java`, `SlideshowActivity.java`.
+- Luồng hoạt động:
+  + Xem ảnh: Dùng Glide nạp ảnh lớn, hỗ trợ vuốt Fling trái/phải để chuyển ảnh trong BST, dải thumbnail nhỏ ở dưới (`PhotoThumbnailAdapter`), thả tim, chia sẻ, chuyển vào thùng rác, xem thông tin chi tiết qua BottomSheet.
+  + Phát video: Dùng androidx.media3 (ExoPlayer) nạp `content://` URI, tự động phát, có nút chỉnh sửa video và chia sẻ.
+  + Trình chiếu (Slideshow): Tự động chuyển ảnh sau 3 giây bằng `Handler.postDelayed()`, có nút Play/Pause, Next, Prev.
+
+4.4. Nhóm Cloud Gallery & Đồng bộ
+- Trạng thái: Đã triển khai mã nguồn (triển khai một phần).
+- Implement: `LibraryFragment.java` (hàm `mergeLocalAndCloud`), `FirestoreRepository.java`.
+- Luồng hoạt động: Tải danh sách `Photo` từ Firestore collection `users/{uid}/photos`. Thuật toán gộp (`mergeLocalAndCloud`) tiến hành so khớp ảnh cloud với ảnh local theo `localMediaUri`, `localMediaId` hoặc SHA-256 hash `contentHash`. Ảnh trùng sẽ hiển thị bằng bản ghi local (kèm status UPLOADED); ảnh chỉ có trên Cloud sẽ hiển thị tile riêng với icon/badge Cloud.
+- Vấn đề/Hạn chế: Việc đọc Firestore dùng `get()` (one-time fetch), chưa dùng `addSnapshotListener()` nên khi thiết bị B thêm/xóa ảnh, thiết bị A phải vuốt Vuốt để làm mới (SwipeRefresh) mới thấy thay đổi.
+
+4.5. Nhóm Upload & Backup Center
+- Trạng thái: Đã hoàn thiện mã nguồn cho BẢN ẢNH, CHƯA BẢO HÀNH CHO VIDEO.
+- Implement: `ImgBBUploadService.java`, `PhotoBackupManager.java`, `PhotoBackupWorker.java`, `BackupWorkScheduler.java`, `BackupUploadLedger.java`, `BackupCenterActivity.java`.
+- Luồng hoạt động:
+  + Người dùng bật Auto-Backup hoặc bấm "Backup Now". `BackupWorkScheduler` tạo `PeriodicWorkRequest` (6 giờ/lần) hoặc `OneTimeWorkRequest` đẩy vào WorkManager.
+  + `PhotoBackupWorker` chạy nền: Gọi `PhotoBackupManager` quét ảnh local chưa sao lưu. Với từng ảnh: Gửi đòn upload lên ImgBB -> Ghi URL tạm vào SQLite `BackupUploadLedger` -> Lưu document metadata vào Firestore với Document ID ổn định `backup_<sha256(uri)>` -> Xóa bản ghi SQLite.
+- Điểm chưa hoàn thiện:
+  + Bỏ qua hoàn toàn VIDEO (`if (local.isVideo()) continue;`). Không có cơ chế upload video lên ImgBB hay Firebase Storage.
+  + Mới chỉ thông báo "Sao lưu hoàn tất một phần" qua Snackbar chứ chưa có chi tiết danh sách từng tệp lỗi cụ thể.
+
+4.6. Nhóm Album & Yêu thích
+- Trạng thái: Đã hoàn thiện mã nguồn.
+- Implement: `AlbumFragment.java`, `AlbumDetailActivity.java`, `FavoritesFragment.java`, `FirestoreRepository.java`.
+- Luồng hoạt động: Album và trạng thái Yêu thích lưu trực tiếp trong document Firestore của từng Photo. `Photo.isFavorite` đánh dấu yêu thích, `Photo.albumIds` chứa danh sách ID album mà ảnh thuộc về.
+- Đã làm: Tạo album, đổi tên album, xóa album, đếm số lượng ảnh trong album, đặt ảnh bìa tự động, thêm/bỏ yêu thích.
+
+4.7. Nhóm Tìm kiếm, Lọc & Sắp xếp
+- Trạng thái: Đã hoàn thiện mã nguồn.
+- Implement: `SearchActivity.java`, `PhotoTimelineUtils.java`, `LibraryFragment.java`.
+- Luồng hoạt động: Tìm kiếm theo tên ảnh (TextWatcher lọc danh sách `allPhotos`). Nhóm theo mốc thời gian (Tất cả / Ngày / Tháng / Năm).
+
+4.8. Nhóm Chọn Nhiều (Multi-Select)
+- Trạng thái: Đã hoàn thiện mã nguồn.
+- Implement: `LibraryFragment.java`.
+- Luồng hoạt động: Nhấn giữ tile ảnh để vào chế độ Chọn nhiều. Thanh Action Bar hiển thị số lượng ảnh đã chọn. Cho phép Chia sẻ hàng loạt, Thêm hàng loạt vào Album, Thả tim hàng loạt, Xóa hàng loạt bản local khỏi thiết bị (dùng `MediaStore.createDeleteRequest` trên Android 11+).
+
+4.9. Nhóm Thùng Rác (Trash)
+- Trạng thái: Triển khai một phần trên Cloud.
+- Implement: `TrashFragment.java`, `FirestoreRepository.java`.
+- Luồng hoạt động: Đánh dấu `isTrashed = true` và `trashedAt = timestamp` trên document Firestore. Ảnh trong thùng rác không hiển thị ở Library hay Album. Cho phép Khôi phục (`isTrashed = false`) hoặc Xóa vĩnh viễn document trên Firestore.
+- Hạn chế: Xóa vĩnh viễn trong Trash chỉ xóa Document Metadata trên Firestore, KHÔNG xóa file thực tế lưu trữ trên server ImgBB.
+
+4.10. Nhóm Chỉnh sửa Ảnh / Video
+- Trạng thái: Đã hoàn thiện mã nguồn cao.
+- Implement:
+  + Ảnh: `PhotoEditorActivity.java`, `BitmapEditor.java`, `ImageSaveUtils.java`, `CropOverlayView.java`, `DrawingOverlayView.java`. Hỗ trợ Cắt ảnh tự do/tỷ lệ chuẩn, Vẽ bút màu/tẩy, Xoay/Lật, Chỉnh thông số màu sắc chi tiết, Bộ lọc. Xuất lưu bản sao hoặc ghi đè (xử lý `RecoverableSecurityException` và `MediaStore.createWriteRequest` trên Android 10/11+).
+  + Video: `VideoEditorActivity.java`, `VideoSaveUtils.java`. Dùng `MediaExtractor` + `MediaMuxer` cắt khoảng thời gian startMs -> endMs và tùy chọn Tắt tiếng (Mute audio), xuất file mp4 mới vào `MediaStore.Video`.
+
+--------------------------------------------------------------------------------
+PHẦN 5. FIREBASE VÀ LƯU TRỮ
+--------------------------------------------------------------------------------
+5.1. Firebase Authentication
+- Dịch vụ: Firebase Email/Password Auth.
+- File mã nguồn: `LoginActivity.java`, `RegisterActivity.java`, `ForgotPasswordActivity.java`, `ProfileFragment.java`.
+- Phương thức sử dụng: `signInWithEmailAndPassword`, `createUserWithEmailAndPassword`, `sendPasswordResetEmail`, `updateProfile`.
+
+5.2. Firestore Data Schema
+Cấu trúc Firestore thực tế đang được sử dụng trong `FirestoreRepository.java`:
+
+- Collection: `users`
+  Document ID: `{uid}`
+  Fields:
+  + `uid` (String)
+  + `displayName` (String)
+  + `email` (String)
+  + `photoUrl` (String)
+  + `createdAt` (long)
+
+- Collection: `users/{uid}/photos`
+  Document ID: `{photoId}` (hoặc `backup_<sha256(uri)>` đối với ảnh sao lưu)
+  Fields:
+  + `id` (String)
+  + `ownerUid` (String)
+  + `name` (String)
+  + `imageUrl` (String)
+  + `displayUrl` (String)
+  + `createdAt` (long)
+  + `favorite` (boolean)
+  + `trashed` (boolean)
+  + `trashedAt` (long)
+  + `localMediaId` (long)
+  + `localMediaUri` (String)
+  + `localDateModified` (long)
+  + `albumIds` (List<String>)
+  + `storageProvider` (String - mặc định "imgbb")
+  + `contentHash` (String - SHA-256 hash nội dung ảnh)
+
+- Collection: `users/{uid}/albums`
+  Document ID: `{albumId}`
+  Fields:
+  + `id` (String)
+  + `ownerUid` (String)
+  + `name` (String)
+  + `createdAt` (long)
+  + `coverImageUrl` (String)
+  + `photoCount` (int)
+
+5.3. ImgBB Storage Service
+- Endpoint API: `https://api.imgbb.com/1/upload`
+- Khóa API (API Key): Đã bị hardcode trực tiếp trong biến tĩnh `API_KEY` trong file `ImgBBUploadService.java`.
+  * Đánh giá bảo mật: RỦI RO BẢO MẬT CAO. Khóa API nằm trực tiếp trong mã nguồn mã hóa APK, bất kỳ ai giải nén APK đều có thể lấy và lạm dụng quota ImgBB.
+- Cách gửi dữ liệu: HTTP Multipart/form-data sử dụng `OkHttpClient` và `UriRequestBody` stream từ `ContentResolver`.
+- Giới hạn: Tối đa 32MB / ảnh.
+- Xử lý lỗi & Retry: Thử lại tối đa 3 lần (với delay 500ms, 1000ms...) khi gặp lỗi mạng ngắt kết nối hoặc HTTP status 408, 429, 5xx.
+
+5.4. Quy tắc Bảo mật (Firebase Security Rules)
+- Tình trạng: Không tìm thấy file `firestore.rules` hoặc cấu hình Security Rules trong thư mục mã nguồn project.
+- Kết luận: Chưa thể xác minh quy tắc bảo mật trên Server Firebase. Cần kiểm tra cấu hình trên Firebase Console.
+
+--------------------------------------------------------------------------------
+PHẦN 6. LUỒNG SAO LƯU VÀ ĐỒNG BỘ
+--------------------------------------------------------------------------------
+6.1. Sơ đồ Luồng Upload / Backup Chi tiết
+[MediaStore Image]
+       │
+       ▼
+[PhotoBackupManager]: Quét ảnh local -> Truy vấn Firestore (`users/{uid}/photos`)
+       │
+       ├─► Đã có trên Firestore & Modified Date khớp ──► Đánh dấu UPLOADED (Skip)
+       ├─► Tìm thấy trong SQLite Ledger ──────────────► Đánh dấu METADATA_PENDING (Bỏ qua Upload ImgBB)
+       └─► Chưa có ──────────────────────────────────► Đánh dấu PENDING
+       │
+       ▼
+[PhotoBackupWorker] (WorkManager Loop):
+       │
+       ├─1. Lấy tệp PENDING -> Gửi `ImgBBUploadService.uploadImageWithRetry`
+       │      │
+       │      └─► Nhận Image URL từ ImgBB -> Ghi ngay vào SQLite `BackupUploadLedger`
+       │
+       ├─2. Tạo đối tượng `Photo` -> Gọi `FirestoreRepository.saveBackupPhoto()`
+       │      │   (Document ID = "backup_" + SHA256(uri))
+       │      │
+       │      └─► Ghi Firestore Thành công -> Xóa bản ghi trong SQLite `BackupUploadLedger`
+       │
+       └─3. Cập nhật Progress WorkManager
+       │
+       ▼
+[Hoàn tất Lượt Backup] -> Cập nhật `lastSyncTime` trong SharedPreferences.
+
+6.2. Cơ chế Chống Lặp & Đảm bảo Tính Toàn vẹn (Idempotency)
+- Tầng Firestore: Document ID được cố định bằng chuỗi `backup_` + SHA-256 Hash của URI local. Do đó nếu ghi đè lại cùng tệp, Firestore sẽ tự `set` cập nhật chứ không tạo Document trùng lặp.
+- Tầng SQLite Ledger: Nếu ứng dụng bị ngắt đột ngột giữa chừng (sau khi ImgBB trả về URL nhưng trước khi ghi Firestore thành công), ở lần chạy sau `PhotoBackupManager` sẽ phát hiện bản ghi trong SQLite `BackupUploadLedger` và khôi phục URL, không tốn băng thông upload lại ImgBB.
+
+6.3. Điểm Yếu / Khoảng trống Trong Luồng Đồng bộ
+- Không hỗ trợ Video Backup: Tệp video bị bỏ qua hoàn toàn trong luồng sao lưu.
+- Thiếu Real-time Listener: Ảnh do thiết bị khác upload sẽ không tự hiện lên thiết bị này cho đến khi người dùng làm mới dữ liệu thủ công.
+- URI Local khác thiết bị: Khi người dùng đăng nhập tài khoản trên thiết bị B, metadata từ Firestore có `localMediaUri` của thiết bị A (không tồn tại trên thiết bị B). Hệ thống xử lý đúng bằng cách hiển thị tile Cloud, tuy nhiên nếu bấm mở ảnh gốc sẽ tải qua URL Cloud chứ không tải lưu lại vào MediaStore thiết bị B.
+
+--------------------------------------------------------------------------------
+PHẦN 7. GIAO DIỆN VÀ RESOURCE
+--------------------------------------------------------------------------------
+7.1. Danh sách Màn hình (14 Activity + 5 Fragment)
+1. `SplashActivity`: Màn hình khởi động, áp dụng theme tối/sáng, kiểm tra Auth.
+2. `LoginActivity`: Màn hình đăng nhập Email/Password.
+3. `RegisterActivity`: Màn hình đăng ký tài khoản mới.
+4. `ForgotPasswordActivity`: Màn hình khôi phục mật khẩu.
+5. `MainActivity`: Màn hình chính chứa BottomNavigationView.
+6. `LibraryFragment`: Thư viện ảnh/video tổng hợp, chọn nhiều, sắp xếp, lọc theo thời gian.
+7. `AlbumFragment`: Danh sách album người dùng.
+8. `FavoritesFragment`: Danh sách ảnh yêu thích.
+9. `TrashFragment`: Thùng rác chứa ảnh đã xóa tạm thời.
+10. `ProfileFragment`: Hồ sơ người dùng, thống kê số lượng ảnh/album, đổi avatar/tên, đăng xuất.
+11. `PhotoDetailActivity`: Trình xem ảnh chi tiết, thao tác thả tim, chia sẻ, xoay, xem thông tin.
+12. `PhotoEditorActivity`: Trình chỉnh sửa ảnh đầy đủ tính năng.
+13. `VideoPlayerActivity`: Trình phát video dùng ExoPlayer.
+14. `VideoEditorActivity`: Trình cắt video dùng MediaExtractor/Muxer.
+15. `BackupCenterActivity`: Trung tâm quản lý sao lưu tự động/thủ công.
+16. `SearchActivity`: Màn hình tìm kiếm ảnh theo tên.
+17. `SettingsActivity`: Màn hình cài đặt (Dark Mode, Backup Center, Logout).
+18. `SlideshowActivity`: Màn hình trình chiếu ảnh tự động.
+19. `PhotoInfoBottomSheetDialog`: BottomSheet thông tin chi tiết tệp.
+20. `BackupOnboardingDialog`: BottomSheet hướng dẫn bật sao lưu lần đầu.
+
+7.2. Tình trạng Tương thích Theme Sáng / Tối (Light / Dark Mode)
+- Đã khai báo màu sắc đồng bộ trong `res/values/colors.xml` và `res/values-night/colors.xml`.
+- Quản lý trạng thái Dark Mode thông qua `PreferencesManager` và `AppCompatDelegate.setDefaultNightMode()`.
+
+--------------------------------------------------------------------------------
+PHẦN 8. LỖI VÀ RỦI RO (BUGS & RISKS)
+--------------------------------------------------------------------------------
+[CRITICAL] RISK-001: Lộ Khóa API ImgBB Trong Mã Nguồn
+- Bằng chứng: `ImgBBUploadService.java` chứa dòng mã `private static final String API_KEY = "57396217bacb8f9d07321ce100a5df6e";`
+- Tác động: Khóa API có thể bị trích xuất dễ dàng từ file APK giải nén. Kẻ xấu có thể dùng API Key này để tải tài nguyên rác làm kiệt quệ tài khoản/quota ImgBB của ứng dụng.
+
+[CRITICAL] RISK-002: Chưa Xác minh Quy tắc Bảo mật Firebase Security Rules
+- Bằng chứng: Trong project không có file `firestore.rules`.
+- Tác động: Nếu trên Firebase Console chưa cài đặt Security Rules (đang để mode Test công khai), bất kỳ ai có Firebase Config đều có thể đọc/xóa toàn bộ cơ sở dữ liệu Firestore của tất cả người dùng.
+
+[HIGH] BUG-001: Lỗi Render Bất đồng bộ trong PhotoEditorActivity Khi Bị Đóng
+- Bằng chứng: `PhotoEditorActivity.java` sử dụng `renderExecutor` để xuất ảnh ở hàm `saveEditedImage()`. Glide `FutureTarget.get()` chạy blocking trên Thread Pool. Nếu Activity bị ngắt/destroy đột ngột trong khi đang render, handler post back hoặc context ứng dụng có thể gặp lỗi rò rỉ bộ nhớ hoặc NullPointer.
+- Tác động: Nguy cơ crash ứng dụng khi người dùng bấm Lưu rồi lập tức đóng Activity.
+
+[HIGH] BUG-002: Lỗi Thiếu Real-time Sync Đa Thiết Bị Trên Firestore
+- Bằng chứng: `FirestoreRepository.java` sử dụng `.get()` một lần cho mọi truy vấn thay vì `.addSnapshotListener()`.
+- Tác động: Khi hai thiết bị cùng đăng nhập một tài khoản, hành động xóa/thêm/sửa album hay ảnh ở thiết bị A không được cập nhật tức thì sang thiết bị B.
+
+[MEDIUM] BUG-003: Tính năng Sao lưu Bỏ qua Tệp Video
+- Bằng chứng: `PhotoBackupWorker.java` có câu lệnh `if (local.isVideo()) continue;` và `DevicePhotoScanner.scanImages()` chỉ quét ảnh.
+- Tác động: Ứng dụng không sao lưu video local lên cloud dù giao diện thể hiện là "Sao lưu toàn bộ thư viện".
+
+[MEDIUM] BUG-004: Thùng Rác Xóa Vĩnh Viễn Không Xóa Tệp Thực Trên ImgBB
+- Bằng chứng: `TrashFragment.java` gọi `repository.deletePhoto()`, chỉ xóa Document trong Firestore.
+- Tác động: Tệp ảnh thực tế đã upload vẫn nằm trên máy chủ ImgBB, gây lãng phí dung lượng storage và không xóa hoàn toàn dữ liệu.
+
+[MEDIUM] BUG-005: Tiêu tốn Bộ nhớ (OOM Risk) Khi Xử lý Ảnh Kích thước Rất Lớn
+- Bằng chứng: `BitmapEditor.java` tạo các Bitmap `ARGB_8888` cùng kích thước ảnh gốc cho mỗi thao tác điều chỉnh màu sắc/bộ lọc.
+- Tác động: Trên các thiết bị cấu hình yếu hoặc khi chỉnh sửa ảnh camera 48MP/108MP, ứng dụng có nguy cơ gặp sự cố `OutOfMemoryError`.
+
+[LOW] BUG-006: Chưa Có Cơ chế Phân Trang (Paging/Pagination)
+- Bằng chứng: `DevicePhotoScanner.java` và `FirestoreRepository.java` nạp toàn bộ danh sách phương tiện vào `List` một lần.
+- Tác động: Gây giật lag nhẹ (UI jank) khi thư viện thiết bị có trên 5.000 đến 10.000 ảnh.
+
+--------------------------------------------------------------------------------
+PHẦN 9. NHỮNG GÌ ĐÃ HOÀN THÀNH VÀ CHƯA HOÀN THÀNH
+--------------------------------------------------------------------------------
+9.1. Đã Triển khai Hoàn chỉnh (Có Bằng chứng Mã nguồn Hoạt động)
+- Đăng ký, đăng nhập, quên mật khẩu, cập nhật profile người dùng qua Firebase Auth & Firestore.
+- Quét và hiển thị thư viện ảnh/video local từ MediaStore, nhóm theo dòng thời gian (Hôm nay, Hôm qua, Ngày, Tháng, Năm).
+- Trình xem ảnh chi tiết, phóng to, lướt dải thumbnail, thả tim, chia sẻ, chuyển vào thùng rác.
+- Trình phát video ExoPlayer (androidx.media3), trình cắt video (MediaExtractor/Muxer).
+- Trình chỉnh sửa ảnh chuyên sâu: Crop tỷ lệ, Vẽ bút/tẩy, Xoay/Lật, Chỉnh 8 thông số màu sắc, Bộ lọc màu. Hỗ trợ Undo/Redo đa cấp.
+- Quản lý Album (Tạo, Đổi tên, Xóa, Thêm ảnh vào album).
+- Quản lý Thùng rác (Khôi phục, Xóa vĩnh viễn metadata).
+- Chế độ chọn nhiều ảnh local (Chia sẻ hàng loạt, Đưa vào album hàng loạt, Xóa local hàng loạt).
+- Cơ chế Auto-backup ảnh nền bằng WorkManager + ImgBB + SQLite Ledger + Firestore.
+- Chế độ sáng/tối (Dark Mode) theo cài đặt hệ thống hoặc tùy chỉnh.
+
+9.2. Triển khai Một Phần / Chưa Hoàn thiện
+- Đồng bộ đa thiết bị: Mới chỉ đồng bộ bằng cách kéo-để-làm-mới thủ công (pull-to-refresh).
+- Sao lưu video: Chưa hỗ trợ sao lưu video lên cloud.
+- Xóa vĩnh viễn trên ImgBB: Mới chỉ xóa metadata trên Firestore.
+- Báo cáo lỗi sao lưu chi tiết: Mới có giao diện tổng quan số lượng thành công/thất bại.
+
+9.3. Chưa Triển khai / Chưa Tìm thấy Mã nguồn
+- Đăng nhập mạng xã hội (Google / Facebook Sign-In).
+- Tải ảnh cloud về lưu ngược lại MediaStore local khi chuyển sang thiết bị mới.
+- Khóa bảo mật ứng dụng (PIN / Biometric / Passcode cho ứng dụng PhotoVault).
+
+--------------------------------------------------------------------------------
+PHẦN 10. KẾ HOẠCH PHÁT TRIỂN TIẾP (ROADMAP)
+--------------------------------------------------------------------------------
+10.1. Thứ tự Ưu tiên Thực hiện các Task
+- Task 1 (Bảo mật & Critical Bugs):
+  + Chuyển ImgBB API Key ra khỏi mã nguồn (đưa vào `local.properties` hoặc xây dựng Firebase Cloud Function proxy).
+  + Kiểm tra và thiết lập Firebase Firestore Security Rules chuẩn xác.
+- Task 2 (Cải thiện Đồng bộ & Realtime):
+  + Chuyển truy vấn `get()` trong `FirestoreRepository` sang `addSnapshotListener()` cho thư viện ảnh và album để nhận dữ liệu thời gian thực giữa nhiều thiết bị.
+- Task 3 (Hoàn thiện Luồng Backup Video & Cloud Download):
+  + Mở rộng `PhotoBackupWorker` hỗ trợ upload video (hoặc tích hợp Firebase Storage / Cloudinary cho video).
+  + Thêm tính năng "Tải bản gốc về thiết bị" trong `PhotoDetailActivity` cho các ảnh chỉ có trên Cloud.
+- Task 4 (Tối ưu Hiệu năng & Bộ nhớ):
+  + Tích hợp AndroidX Paging 3 cho `DevicePhotoScanner` và Firestore query.
+  + Thêm cơ chế Downsampling Bitmap linh hoạt trong `BitmapEditor.java` để chống OOM khi sửa ảnh dung lượng cực lớn.
+
+--------------------------------------------------------------------------------
+PHẦN 11. TỪ ĐIỂN DỮ LIỆU VÀ THUẬT NGỮ
+--------------------------------------------------------------------------------
+11.1. Các Trạng thái Backup của LocalMediaPhoto
+- `STATUS_PENDING` ("PENDING"): Tệp local chưa được sao lưu lên Cloud.
+- `STATUS_UPLOADING` ("UPLOADING"): Tệp đang trong quá trình upload ImgBB.
+- `STATUS_UPLOADED` ("UPLOADED"): Tệp đã upload ImgBB và đã ghi nhận metadata vào Firestore.
+- `STATUS_FAILED` ("FAILED"): Tiến trình sao lưu bị lỗi.
+- `STATUS_METADATA_PENDING` ("METADATA_PENDING"): Ảnh đã upload xong lên ImgBB (đã lưu URL vào SQLite `BackupUploadLedger`) nhưng chưa ghi xong vào Firestore.
+
+11.2. Đặt tên Document ID trong Firestore
+- User Document: Document ID = Firebase Auth User UID (`user.getUid()`).
+- Cloud Photo Document: Document ID = Auto UUID hoặc `backup_` + SHA256(localContentUri).
+- Album Document: Document ID = Auto UUID (`UUID.randomUUID().toString()`).
+
+--------------------------------------------------------------------------------
+PHẦN 12. HƯỚNG DẪN CHO AI AGENT TIẾP THEO (HANDOFF INSTRUCTION)
+--------------------------------------------------------------------------------
+Dành cho AI Agent tiếp nhận dự án này để triển khai code:
+
+1. Các File Cần Đọc Đầu Tiên:
+   - `app/build.gradle.kts` và `AndroidManifest.xml` để nắm rõ SDK và quyền.
+   - `FirestoreRepository.java` để hiểu toàn bộ giao tiếp dữ liệu Cloud.
+   - `LibraryFragment.java` để hiểu luồng gộp dữ liệu hiển thị chính.
+   - `PhotoBackupWorker.java` và `ImgBBUploadService.java` nếu làm việc với luồng sao lưu.
+   - `PhotoEditorActivity.java` và `BitmapEditor.java` nếu làm việc với trình chỉnh sửa ảnh.
+
+2. Những Lưu Ý Quan Trọng KHÔNG Được Thay Đổi Tùy Tiện:
+   - GIỮ NGUYÊN cấu trúc Document ID `backup_<sha256(uri)>` trong `FirestoreRepository.java` để đảm bảo tính idempotent cho tác vụ sao lưu nền.
+   - GIỮ NGUYÊN cơ chế làm việc của SQLite `BackupUploadLedger.java` vì đây là điểm tựa chống upload trùng lặp khi WorkManager bị hủy ngang.
+   - KHÔNG sửa đổi các hằng số định dạng ngày trong `PhotoTimelineUtils.java` nếu không có yêu cầu thay đổi giao diện Nhóm Ngày/Tháng/Năm.
+
+3. Lỗi Cần Ưu tiên Sửa Đào Sau Task 001:
+   - Thay thế API Key bị hardcode trong `ImgBBUploadService.java`.
+   - Bổ sung kiểm tra Null và Exception handling khi giải phóng Bitmap trong `PhotoEditorActivity.java`.
+
+4. Quy trình Kiểm thử Xác minh Sau Khi Sửa Code:
+   - Chạy lệnh Gradle build: `./gradlew app:assembleDebug` để đảm bảo không lỗi biên dịch.
+   - Đăng nhập tài khoản, mở tab Thư viện, kiểm tra hiển thị cả ảnh local lẫn cloud.
+   - Mở màn hình Backup Center, bấm "Sao lưu ngay" để kiểm tra WorkManager chạy không bị crash.
+   - Mở trình chỉnh sửa ảnh, thực hiện Cắt/Vẽ/Đổi màu và Lưu bản sao để đảm bảo file mới xuất hiện trong MediaStore.
+
+================================================================================
+KẾT THÚC BÁO CÁO
+================================================================================

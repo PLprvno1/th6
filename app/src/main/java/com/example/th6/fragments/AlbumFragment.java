@@ -19,11 +19,16 @@ import androidx.recyclerview.widget.GridLayoutManager;
 import com.example.th6.R;
 import com.example.th6.activities.AlbumDetailActivity;
 import com.example.th6.adapters.AlbumAdapter;
-import com.example.th6.data.FirestoreRepository;
+import com.example.th6.data.AuthRepository;
+import com.example.th6.data.PhotoRepository;
 import com.example.th6.databinding.FragmentAlbumBinding;
 import com.example.th6.models.Album;
-import com.google.firebase.auth.FirebaseAuth;
-import com.google.firebase.auth.FirebaseUser;
+import com.example.th6.models.LocalMediaPhoto;
+import com.example.th6.models.Photo;
+import com.example.th6.data.LocalAlbumStore;
+import com.example.th6.services.DevicePhotoScanner;
+import com.example.th6.utils.PhotoVaultTrashCache;
+import io.github.jan.supabase.auth.user.UserInfo;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -33,15 +38,15 @@ public class AlbumFragment extends Fragment implements AlbumAdapter.OnAlbumActio
 
     private FragmentAlbumBinding binding;
     private AlbumAdapter albumAdapter;
-    private FirestoreRepository repository;
-    private FirebaseAuth mAuth;
+    private PhotoRepository repository;
+    private AuthRepository authRepository;
     private List<Album> albumList = new ArrayList<>();
 
     @Override
     public void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        mAuth = FirebaseAuth.getInstance();
-        repository = new FirestoreRepository();
+        authRepository = new AuthRepository();
+        repository = new PhotoRepository();
     }
 
     @Nullable
@@ -72,42 +77,88 @@ public class AlbumFragment extends Fragment implements AlbumAdapter.OnAlbumActio
     }
 
     private void loadAlbums() {
-        FirebaseUser user = mAuth.getCurrentUser();
+        UserInfo user = authRepository.getCurrentUser();
         if (user == null || binding == null) return;
-        String requestedUid = user.getUid();
+        String requestedUid = user.getId();
 
         binding.progressBar.setVisibility(View.VISIBLE);
-        repository.getAlbums(requestedUid, new FirestoreRepository.RepositoryCallback<List<Album>>() {
+        repository.getAlbumsAsync(requestedUid, new PhotoRepository.Callback<List<Album>>() {
             @Override
             public void onSuccess(List<Album> albums) {
-                FirebaseUser activeUser = mAuth.getCurrentUser();
-                if (binding == null || !isAdded() || activeUser == null || !requestedUid.equals(activeUser.getUid())) return;
+                UserInfo activeUser = authRepository.getCurrentUser();
+                if (binding == null || !isAdded() || activeUser == null || !requestedUid.equals(activeUser.getId())) return;
                 binding.progressBar.setVisibility(View.GONE);
                 binding.swipeRefresh.setRefreshing(false);
                 albumList = albums != null ? albums : new ArrayList<>();
                 albumAdapter.setAlbums(albumList);
                 updateEmptyState();
-                repository.getPhotos(requestedUid, new FirestoreRepository.RepositoryCallback<List<com.example.th6.models.Photo>>() {
-                    @Override public void onSuccess(List<com.example.th6.models.Photo> photos) {
-                        FirebaseUser current = mAuth.getCurrentUser();
-                        if (binding == null || !isAdded() || current == null || !requestedUid.equals(current.getUid())) return;
-                        java.util.Map<String, Integer> counts = new java.util.HashMap<>();
-                        java.util.Map<String, String> covers = new java.util.HashMap<>();
-                        if (photos != null) for (com.example.th6.models.Photo photo : photos) {
-                            if (photo.isTrashed() || photo.getAlbumIds() == null) continue;
-                            for (String albumId : photo.getAlbumIds()) {
-                                counts.put(albumId, counts.getOrDefault(albumId, 0) + 1);
-                                if (!covers.containsKey(albumId) && photo.getImageUrl() != null) covers.put(albumId, photo.getImageUrl());
+                repository.getPhotosByUserAsync(requestedUid, new PhotoRepository.Callback<List<Photo>>() {
+                    @Override public void onSuccess(List<Photo> photos) {
+                        new DevicePhotoScanner().scanPhotos(requireContext(), new DevicePhotoScanner.ScanCallback() {
+                            @Override public void onScanComplete(List<LocalMediaPhoto> localItems) {
+                                UserInfo current = authRepository.getCurrentUser();
+                                if (binding == null || !isAdded() || current == null || !requestedUid.equals(current.getId())) return;
+                                java.util.Map<String, LocalMediaPhoto> byUri = new java.util.HashMap<>();
+                                for (LocalMediaPhoto local : localItems) byUri.put(local.getContentUri(), local);
+                                java.util.Map<String, java.util.Set<String>> members = new java.util.HashMap<>();
+                                java.util.Map<String, List<Photo>> cloudMembers = new java.util.HashMap<>();
+                                java.util.Set<String> trashedLocalKeys = new java.util.HashSet<>();
+                                java.util.Set<String> localTrashIdentities = PhotoVaultTrashCache.getLocalMediaIdentityKeys(requireContext());
+                                for (LocalMediaPhoto local : localItems) if (PhotoVaultTrashCache.isLocalMediaTrashed(localTrashIdentities, local)) trashedLocalKeys.add(AlbumMediaPickerActivityKey.forLocal(local));
+                                if (photos != null) for (Photo photo : photos) {
+                                    LocalMediaPhoto local = byUri.get(photo.getLocalMediaUri());
+                                    if (photo.isTrashed()) { if (local != null) trashedLocalKeys.add(AlbumMediaPickerActivityKey.forLocal(local)); continue; }
+                                    if (photo.getAlbumIds() == null) continue;
+                                    String mediaKey = local == null ? "cloud:" + photo.getId() : AlbumMediaPickerActivityKey.forLocal(local);
+                                    for (String albumId : photo.getAlbumIds()) {
+                                        members.computeIfAbsent(albumId, ignored -> new java.util.HashSet<>()).add(mediaKey);
+                                        cloudMembers.computeIfAbsent(albumId, ignored -> new ArrayList<>()).add(photo);
+                                    }
+                                }
+                                try (LocalAlbumStore store = new LocalAlbumStore(requireContext())) {
+                                    for (Album album : albumList) {
+                                        java.util.Set<String> all = members.computeIfAbsent(album.getId(), ignored -> new java.util.HashSet<>());
+                                        java.util.Set<String> availableLocalKeys = new java.util.HashSet<>();
+                                        for (LocalMediaPhoto local : localItems) availableLocalKeys.add(AlbumMediaPickerActivityKey.forLocal(local));
+                                        java.util.Set<String> localMemberships = new java.util.HashSet<>(store.getMembers(requestedUid, album.getId()));
+                                        for (String key : localMemberships) if (availableLocalKeys.contains(key) && !trashedLocalKeys.contains(key)) all.add(key);
+                                        album.setPhotoCount(all.size());
+                                        List<Photo> cloud = cloudMembers.getOrDefault(album.getId(), new ArrayList<>());
+                                        cloud.sort(java.util.Comparator.comparingLong(Photo::getCreatedAt).thenComparing(Photo::getId));
+                                        boolean cloudCoverValid = false;
+                                        if (album.getCoverImageUrl() != null) for (Photo p : cloud) if (album.getCoverImageUrl().equals(p.getImageUrl())) cloudCoverValid = true;
+                                        String localCover = store.getCover(requestedUid, album.getId());
+                                        LocalMediaPhoto localCoverItem = null;
+                                        if (localCover != null && localMemberships.contains(localCover)) for (LocalMediaPhoto local : localItems) if (localCover.equals(AlbumMediaPickerActivityKey.forLocal(local)) && !trashedLocalKeys.contains(localCover)) { localCoverItem = local; break; }
+                                        album.setDisplayCoverUri(localCoverItem == null ? "" : localCoverItem.getContentUri());
+                                        Photo selectedCloudCover = null;
+                                        if (cloudCoverValid) for (Photo p : cloud) if (album.getCoverImageUrl().equals(p.getImageUrl())) { selectedCloudCover = p; break; }
+                                        album.setDisplayCoverVideo(localCoverItem != null ? localCoverItem.isVideo() : selectedCloudCover != null && "video".equalsIgnoreCase(selectedCloudCover.getMediaType()));
+                                        if (!cloudCoverValid && localCoverItem == null && !cloud.isEmpty()) {
+                                            Photo first = cloud.get(0);
+                                            album.setCoverImageUrl(first.getImageUrl());
+                                            album.setDisplayCoverVideo("video".equalsIgnoreCase(first.getMediaType()));
+                                            repository.updateAlbumCoverUrlAsync(requestedUid, album.getId(), first.getImageUrl(), new PhotoRepository.Callback<Void>() {
+                                                @Override public void onSuccess(Void result) { }
+                                                @Override public void onError(String error) { }
+                                            });
+                                        } else if (!cloudCoverValid && localCoverItem == null && all.isEmpty()) {
+                                            album.setCoverImageUrl(""); store.clearCover(requestedUid, album.getId());
+                                        }
+                                    }
+                                }
+                                albumAdapter.setAlbums(albumList);
                             }
-                        }
-                        for (Album album : albumList) {
-                            album.setPhotoCount(counts.getOrDefault(album.getId(), 0));
-                            String cover = covers.get(album.getId());
-                            if (cover != null && (album.getCoverImageUrl() == null || album.getCoverImageUrl().isEmpty())) album.setCoverImageUrl(cover);
-                        }
-                        albumAdapter.setAlbums(albumList);
+                            @Override public void onScanError(String error) {
+                                if (binding == null || !isAdded()) return;
+                                albumAdapter.setAlbums(albumList);
+                            }
+                        });
                     }
-                    @Override public void onError(String error) { /* Album contents remain available in detail view. */ }
+                    @Override public void onError(String error) {
+                        if (binding == null || !isAdded() || getContext() == null) return;
+                        Toast.makeText(requireContext(), "Không tải được nội dung album; đang giữ danh sách album.", Toast.LENGTH_LONG).show();
+                    }
                 });
             }
 
@@ -145,14 +196,14 @@ public class AlbumFragment extends Fragment implements AlbumAdapter.OnAlbumActio
     }
 
     private void createAlbum(String name) {
-        FirebaseUser user = mAuth.getCurrentUser();
+        UserInfo user = authRepository.getCurrentUser();
         if (user == null || binding == null) return;
 
         String albumId = UUID.randomUUID().toString();
-        Album album = new Album(albumId, user.getUid(), name, System.currentTimeMillis());
+        Album album = new Album(albumId, user.getId(), name, System.currentTimeMillis());
 
         binding.progressBar.setVisibility(View.VISIBLE);
-        repository.createAlbum(album, new FirestoreRepository.RepositoryCallback<Void>() {
+        repository.createAlbumAsync(album, new PhotoRepository.Callback<Void>() {
             @Override
             public void onSuccess(Void result) {
                 if (binding == null || !isAdded()) return;
@@ -195,7 +246,7 @@ public class AlbumFragment extends Fragment implements AlbumAdapter.OnAlbumActio
     @Override
     public void onAlbumLongClick(Album album, View view) {
         PopupMenu popupMenu = new PopupMenu(requireContext(), view);
-        popupMenu.getMenu().add(0, 1, 0, R.string.edit_name);
+        popupMenu.getMenu().add(0, 1, 0, R.string.rename_album);
         popupMenu.getMenu().add(0, 2, 1, R.string.btn_delete);
 
         popupMenu.setOnMenuItemClickListener(item -> {
@@ -219,14 +270,14 @@ public class AlbumFragment extends Fragment implements AlbumAdapter.OnAlbumActio
         input.setPadding(32, 32, 32, 32);
 
         new AlertDialog.Builder(requireContext())
-                .setTitle(R.string.edit_name)
+                .setTitle(R.string.rename_album)
                 .setView(input)
                 .setPositiveButton(R.string.btn_save, (dialog, which) -> {
                     String newName = input.getText().toString().trim();
                     if (!TextUtils.isEmpty(newName)) {
-                        FirebaseUser user = mAuth.getCurrentUser();
+                        UserInfo user = authRepository.getCurrentUser();
                         if (user != null) {
-                            repository.updateAlbumName(user.getUid(), album.getId(), newName, new FirestoreRepository.RepositoryCallback<Void>() {
+                            repository.updateAlbumNameAsync(user.getId(), album.getId(), newName, new PhotoRepository.Callback<Void>() {
                                 @Override
                                 public void onSuccess(Void result) {
                                     if (binding == null || !isAdded()) return;
@@ -257,12 +308,13 @@ public class AlbumFragment extends Fragment implements AlbumAdapter.OnAlbumActio
                 .setTitle("Xóa Album")
                 .setMessage(R.string.confirm_delete_album)
                 .setPositiveButton("Xóa", (dialog, which) -> {
-                    FirebaseUser user = mAuth.getCurrentUser();
+                    UserInfo user = authRepository.getCurrentUser();
                     if (user != null) {
-                        repository.deleteAlbum(user.getUid(), album.getId(), new FirestoreRepository.RepositoryCallback<Void>() {
+                        repository.deleteAlbumAsync(user.getId(), album.getId(), new PhotoRepository.Callback<Void>() {
                             @Override
                             public void onSuccess(Void result) {
                                 if (binding == null || !isAdded()) return;
+                                try (LocalAlbumStore store = new LocalAlbumStore(requireContext())) { store.deleteAlbum(user.getId(), album.getId()); }
                                 if (getContext() != null) {
                                     Toast.makeText(getContext(), "Đã xóa album", Toast.LENGTH_SHORT).show();
                                 }
@@ -293,5 +345,11 @@ public class AlbumFragment extends Fragment implements AlbumAdapter.OnAlbumActio
     public void onDestroyView() {
         super.onDestroyView();
         binding = null;
+    }
+
+    private static final class AlbumMediaPickerActivityKey {
+        static String forLocal(LocalMediaPhoto local) {
+            return "media:" + (local.isVideo() ? "video" : "image") + ":" + local.getMediaId() + ":" + local.getDateModified() + ":" + local.getSizeBytes();
+        }
     }
 }

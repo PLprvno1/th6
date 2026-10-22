@@ -36,11 +36,29 @@
             android:textStyle="bold" />
 
         <ImageButton
+            android:id="@+id/btnSelectAlbumMedia"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Chọn media"
+            android:src="@drawable/ic_selection"
+            app:tint="?attr/colorPrimary" />
+
+        <ImageButton
+            android:id="@+id/btnAddAlbumMedia"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Thêm ảnh và video"
+            android:src="@drawable/ic_add"
+            app:tint="?attr/colorPrimary" />
+
+        <ImageButton
             android:id="@+id/btnEditAlbum"
             android:layout_width="40dp"
             android:layout_height="40dp"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/edit_name"
+            android:contentDescription="@string/rename_album"
             android:src="@drawable/ic_edit"
             app:tint="?attr/colorPrimary" />
 
@@ -55,11 +73,87 @@
 
     </LinearLayout>
 
+    <LinearLayout
+        android:id="@+id/albumTimelineControls"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_below="@id/topToolbar"
+        android:orientation="vertical">
+        <HorizontalScrollView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingHorizontal="8dp"
+            android:scrollbars="none">
+            <com.google.android.material.chip.ChipGroup
+                android:id="@+id/chipAlbumTimeMode"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                app:singleSelection="true">
+                <com.google.android.material.chip.Chip android:id="@+id/chipAlbumDays" style="@style/Widget.Material3.Chip.Filter" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/view_mode_days" />
+                <com.google.android.material.chip.Chip android:id="@+id/chipAlbumMonths" style="@style/Widget.Material3.Chip.Filter" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/view_mode_months" />
+                <com.google.android.material.chip.Chip android:id="@+id/chipAlbumYears" style="@style/Widget.Material3.Chip.Filter" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/view_mode_years" />
+                <com.google.android.material.chip.Chip android:id="@+id/chipAlbumAllTime" style="@style/Widget.Material3.Chip.Filter" android:layout_width="wrap_content" android:layout_height="wrap_content" android:checked="true" android:text="@string/view_mode_all" />
+            </com.google.android.material.chip.ChipGroup>
+        </HorizontalScrollView>
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+            <HorizontalScrollView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:paddingHorizontal="8dp" android:scrollbars="none">
+                <com.google.android.material.chip.ChipGroup
+                    android:id="@+id/chipAlbumMediaType"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    app:singleSelection="true">
+                    <com.google.android.material.chip.Chip android:id="@+id/chipAlbumMediaAll" style="@style/Widget.Material3.Chip.Filter" android:layout_width="wrap_content" android:layout_height="wrap_content" android:checked="true" android:text="@string/media_filter_all" />
+                    <com.google.android.material.chip.Chip android:id="@+id/chipAlbumImages" style="@style/Widget.Material3.Chip.Filter" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/media_filter_images" />
+                    <com.google.android.material.chip.Chip android:id="@+id/chipAlbumVideos" style="@style/Widget.Material3.Chip.Filter" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/media_filter_videos" />
+                </com.google.android.material.chip.ChipGroup>
+            </HorizontalScrollView>
+            <ImageButton
+                android:id="@+id/btnAlbumSort"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginEnd="8dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/menu_sort"
+                android:src="@drawable/ic_sort"
+                app:tint="?attr/colorPrimary" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <FrameLayout
+        android:id="@+id/albumCoverFrame"
+        android:layout_width="match_parent"
+        android:layout_height="132dp"
+        android:layout_below="@id/albumTimelineControls"
+        android:layout_marginHorizontal="12dp"
+        android:layout_marginTop="6dp">
+        <ImageView
+            android:id="@+id/imgAlbumHero"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:contentDescription="Ảnh bìa album"
+            android:scaleType="centerCrop"
+            android:src="@drawable/ic_photo_placeholder" />
+        <View android:layout_width="match_parent" android:layout_height="match_parent" android:background="@color/overlay" />
+        <TextView
+            android:id="@+id/tvAlbumMediaCount"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|start"
+            android:padding="12dp"
+            android:textColor="@android:color/white"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+    </FrameLayout>
+
     <androidx.swiperefreshlayout.widget.SwipeRefreshLayout
         android:id="@+id/swipeRefresh"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:layout_below="@+id/topToolbar">
+        android:layout_below="@+id/albumCoverFrame">
 
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/rvAlbumPhotos"
@@ -69,6 +163,38 @@
             android:padding="6dp" />
 
     </androidx.swiperefreshlayout.widget.SwipeRefreshLayout>
+
+    <LinearLayout
+        android:id="@+id/layoutAlbumSelection"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_alignParentBottom="true"
+        android:background="@color/surface_light"
+        android:elevation="8dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:padding="12dp"
+        android:visibility="gone">
+        <TextView
+            android:id="@+id/tvAlbumSelectionCount"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textColor="@color/text_primary_light"
+            android:textStyle="bold" />
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnCancelAlbumSelection"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Hủy" />
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnRemoveAlbumSelection"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Gỡ khỏi album"
+            app:cornerRadius="12dp" />
+    </LinearLayout>
 
     <LinearLayout
         android:id="@+id/layoutEmpty"
@@ -88,11 +214,12 @@
             app:tint="@color/gray_500" />
 
         <TextView
+            android:id="@+id/tvAlbumEmptyMessage"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
             android:gravity="center"
-            android:text="Album chưa có ảnh nào."
+            android:text="@string/album_empty"
             android:textColor="@color/text_secondary_light"
             android:textSize="14sp" />
 

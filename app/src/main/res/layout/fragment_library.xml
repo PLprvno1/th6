@@ -117,7 +117,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:checked="true"
-                android:text="Tất cả ảnh" />
+                android:text="@string/view_mode_all" />
 
             <com.google.android.material.chip.Chip
                 android:id="@+id/chipDays"
@@ -142,6 +142,39 @@
 
         </com.google.android.material.chip.ChipGroup>
 
+    </HorizontalScrollView>
+
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingHorizontal="16dp"
+        android:paddingBottom="6dp"
+        android:scrollbars="none">
+        <com.google.android.material.chip.ChipGroup
+            android:id="@+id/chipGroupMediaType"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            app:singleSelection="true">
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chipMediaAll"
+                style="@style/Widget.Material3.Chip.Filter"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:checked="true"
+                android:text="Tất cả media" />
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chipMediaImages"
+                style="@style/Widget.Material3.Chip.Filter"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Ảnh" />
+            <com.google.android.material.chip.Chip
+                android:id="@+id/chipMediaVideos"
+                style="@style/Widget.Material3.Chip.Filter"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Video" />
+        </com.google.android.material.chip.ChipGroup>
     </HorizontalScrollView>
 
     <!-- Gallery Content Container -->
@@ -209,7 +242,7 @@
                 android:layout_width="0dp"
                 android:layout_height="48dp"
                 android:layout_weight="1"
-                android:text="Xóa local"
+                android:text="Chuyển vào thùng rác"
                 android:textSize="11sp" />
 
             <com.google.android.material.button.MaterialButton

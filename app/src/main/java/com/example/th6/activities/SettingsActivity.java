@@ -7,15 +7,16 @@ import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.example.th6.R;
+import com.example.th6.activities.SmartCleanupActivity;
+import com.example.th6.data.AuthRepository;
 import com.example.th6.databinding.ActivitySettingsBinding;
 import com.example.th6.utils.PreferencesManager;
-import com.google.firebase.auth.FirebaseAuth;
 
 public class SettingsActivity extends AppCompatActivity {
 
     private ActivitySettingsBinding binding;
     private PreferencesManager prefsManager;
-    private FirebaseAuth mAuth;
+    private AuthRepository authRepository;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -24,7 +25,7 @@ public class SettingsActivity extends AppCompatActivity {
         setContentView(binding.getRoot());
 
         prefsManager = new PreferencesManager(this);
-        mAuth = FirebaseAuth.getInstance();
+        authRepository = new AuthRepository();
 
         setupUI();
         setupListeners();
@@ -45,6 +46,9 @@ public class SettingsActivity extends AppCompatActivity {
             startActivity(new Intent(SettingsActivity.this, BackupCenterActivity.class));
         });
 
+        binding.cardSmartCleanup.setOnClickListener(v ->
+                startActivity(new Intent(SettingsActivity.this, SmartCleanupActivity.class)));
+
         binding.btnLogout.setOnClickListener(v -> confirmLogout());
     }
 
@@ -53,11 +57,20 @@ public class SettingsActivity extends AppCompatActivity {
                 .setTitle(R.string.menu_logout)
                 .setMessage(R.string.confirm_logout)
                 .setPositiveButton(R.string.btn_ok, (dialog, which) -> {
-                    mAuth.signOut();
-                    Intent intent = new Intent(SettingsActivity.this, LoginActivity.class);
-                    intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-                    startActivity(intent);
-                    finish();
+                    authRepository.signOutAsync(result -> {
+                        if (isFinishing() || isDestroyed()) return;
+                        if (!result.getLocalSessionCleared()) {
+                            android.widget.Toast.makeText(this, "Không thể xóa phiên đăng nhập trên thiết bị. Thử lại.", android.widget.Toast.LENGTH_LONG).show();
+                            return;
+                        }
+                        if (!result.getServerSignOutConfirmed()) {
+                            android.widget.Toast.makeText(this, "Đã đăng xuất khỏi thiết bị. Máy chủ chưa xác nhận thu hồi phiên.", android.widget.Toast.LENGTH_LONG).show();
+                        }
+                        Intent intent = new Intent(this, LoginActivity.class);
+                        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                        startActivity(intent);
+                        finish();
+                    });
                 })
                 .setNegativeButton(R.string.btn_cancel, null)
                 .show();

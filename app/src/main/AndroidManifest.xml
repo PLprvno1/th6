@@ -47,6 +47,18 @@
             android:name=".activities.ForgotPasswordActivity"
             android:exported="false"
             android:windowSoftInputMode="adjustResize" />
+        <activity
+            android:name=".activities.ResetPasswordActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:windowSoftInputMode="adjustResize">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="com.example.th6" android:host="auth-callback" />
+            </intent-filter>
+        </activity>
 
         <!-- Main Activity (Home with BottomNav and Fragments) -->
         <activity
@@ -59,7 +71,13 @@
             android:name=".activities.PhotoDetailActivity"
             android:exported="false" />
         <activity
+            android:name=".activities.TrashDetailActivity"
+            android:exported="false" />
+        <activity
             android:name=".activities.AlbumDetailActivity"
+            android:exported="false" />
+        <activity
+            android:name=".activities.AlbumMediaPickerActivity"
             android:exported="false" />
         <activity
             android:name=".activities.SearchActivity"
@@ -72,6 +90,9 @@
             android:exported="false" />
         <activity
             android:name=".activities.BackupCenterActivity"
+            android:exported="false" />
+        <activity
+            android:name=".activities.SmartCleanupActivity"
             android:exported="false" />
         <activity
             android:name=".activities.PhotoEditorActivity"

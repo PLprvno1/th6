@@ -9,18 +9,16 @@ import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.example.th6.MainActivity;
-import com.example.th6.data.FirestoreRepository;
+import com.example.th6.data.AuthRepository;
+import com.example.th6.data.PhotoRepository;
 import com.example.th6.databinding.ActivityRegisterBinding;
 import com.example.th6.models.UserProfile;
-import com.google.firebase.auth.FirebaseAuth;
-import com.google.firebase.auth.FirebaseUser;
-import com.google.firebase.auth.UserProfileChangeRequest;
 
 public class RegisterActivity extends AppCompatActivity {
 
     private ActivityRegisterBinding binding;
-    private FirebaseAuth mAuth;
-    private FirestoreRepository repository;
+    private AuthRepository authRepository;
+    private PhotoRepository photoRepository;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -28,8 +26,8 @@ public class RegisterActivity extends AppCompatActivity {
         binding = ActivityRegisterBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
 
-        mAuth = FirebaseAuth.getInstance();
-        repository = new FirestoreRepository();
+        authRepository = new AuthRepository();
+        photoRepository = new PhotoRepository();
 
         binding.btnRegister.setOnClickListener(v -> performRegister());
 
@@ -72,55 +70,52 @@ public class RegisterActivity extends AppCompatActivity {
 
         setLoading(true);
 
-        mAuth.createUserWithEmailAndPassword(email, password)
-                .addOnCompleteListener(this, task -> {
-                    if (task.isSuccessful() && mAuth.getCurrentUser() != null) {
-                        FirebaseUser user = mAuth.getCurrentUser();
+        authRepository.signUpAsync(email, password, new AuthRepository.AuthCallback() {
+            @Override
+            public void onSuccess(String userId, String message) {
+                if (userId != null && !userId.isEmpty()) {
+                    UserProfile userProfile = new UserProfile(
+                            userId,
+                            fullName,
+                            email,
+                            "",
+                            System.currentTimeMillis()
+                    );
+                    photoRepository.createUserProfileAsync(userProfile, new PhotoRepository.Callback<Void>() {
+                        @Override
+                        public void onSuccess(Void result) {
+                            setLoading(false);
+                            Toast.makeText(RegisterActivity.this, message, Toast.LENGTH_SHORT).show();
+                            navigateToMain();
+                        }
 
-                        // Update displayName in Firebase Auth
-                        UserProfileChangeRequest profileUpdates = new UserProfileChangeRequest.Builder()
-                                .setDisplayName(fullName)
-                                .build();
-                        user.updateProfile(profileUpdates);
+                        @Override
+                        public void onError(String error) {
+                            setLoading(false);
+                            Toast.makeText(RegisterActivity.this, "Tài khoản đã tạo nhưng chưa lưu hồ sơ: " + error, Toast.LENGTH_LONG).show();
+                            navigateToMain();
+                        }
+                    });
+                } else {
+                    setLoading(false);
+                    Toast.makeText(RegisterActivity.this, message, Toast.LENGTH_SHORT).show();
+                    navigateToMain();
+                }
+            }
 
-                        // Create UserProfile document in Firestore
-                        UserProfile userProfile = new UserProfile(
-                                user.getUid(),
-                                fullName,
-                                email,
-                                "",
-                                System.currentTimeMillis()
-                        );
+            @Override
+            public void onError(String error) {
+                setLoading(false);
+                Toast.makeText(RegisterActivity.this, "Lỗi đăng ký: " + error, Toast.LENGTH_LONG).show();
+            }
+        });
+    }
 
-                        repository.createUserProfile(userProfile, new FirestoreRepository.RepositoryCallback<Void>() {
-                            @Override
-                            public void onSuccess(Void result) {
-                                setLoading(false);
-                                Toast.makeText(RegisterActivity.this, "Đăng ký tài khoản thành công!", Toast.LENGTH_SHORT).show();
-                                Intent intent = new Intent(RegisterActivity.this, MainActivity.class);
-                                intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-                                startActivity(intent);
-                                finish();
-                            }
-
-                            @Override
-                            public void onError(String error) {
-                                setLoading(false);
-                                // Account created, but firestore failed -> navigate anyway
-                                Toast.makeText(RegisterActivity.this, "Tài khoản đã tạo nhưng chưa lưu thông tin chi tiết: " + error, Toast.LENGTH_LONG).show();
-                                Intent intent = new Intent(RegisterActivity.this, MainActivity.class);
-                                intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-                                startActivity(intent);
-                                finish();
-                            }
-                        });
-
-                    } else {
-                        setLoading(false);
-                        String errMsg = task.getException() != null ? task.getException().getMessage() : "Đăng ký thất bại";
-                        Toast.makeText(RegisterActivity.this, "Lỗi đăng ký: " + errMsg, Toast.LENGTH_LONG).show();
-                    }
-                });
+    private void navigateToMain() {
+        Intent intent = new Intent(RegisterActivity.this, MainActivity.class);
+        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+        startActivity(intent);
+        finish();
     }
 
     private void setLoading(boolean isLoading) {

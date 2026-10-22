@@ -21,15 +21,14 @@ import com.bumptech.glide.Glide;
 import com.example.th6.R;
 import com.example.th6.activities.LoginActivity;
 import com.example.th6.activities.SettingsActivity;
-import com.example.th6.data.FirestoreRepository;
+import com.example.th6.data.AuthRepository;
+import com.example.th6.data.PhotoRepository;
+import com.example.th6.data.StorageRepository;
 import com.example.th6.databinding.FragmentProfileBinding;
 import com.example.th6.models.Album;
 import com.example.th6.models.Photo;
 import com.example.th6.models.UserProfile;
-import com.example.th6.services.ImgBBUploadService;
-import com.google.firebase.auth.FirebaseAuth;
-import com.google.firebase.auth.FirebaseUser;
-import com.google.firebase.auth.UserProfileChangeRequest;
+import io.github.jan.supabase.auth.user.UserInfo;
 
 import java.util.HashMap;
 import java.util.List;
@@ -38,24 +37,24 @@ import java.util.Map;
 public class ProfileFragment extends Fragment {
 
     private FragmentProfileBinding binding;
-    private FirebaseAuth mAuth;
-    private FirestoreRepository repository;
-    private ImgBBUploadService uploadService;
+    private AuthRepository authRepository;
+    private PhotoRepository repository;
+    private StorageRepository storageRepository;
 
     private ActivityResultLauncher<String> avatarPickerLauncher;
 
     @Override
     public void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        mAuth = FirebaseAuth.getInstance();
-        repository = new FirestoreRepository();
-        uploadService = new ImgBBUploadService();
+        authRepository = new AuthRepository();
+        repository = new PhotoRepository();
+        storageRepository = new StorageRepository();
 
         avatarPickerLauncher = registerForActivityResult(
                 new ActivityResultContracts.GetContent(),
                 uri -> {
                     if (uri != null) {
-                        uploadAvatarToImgBB(uri);
+                        uploadAvatarToSupabase(uri);
                     }
                 }
         );
@@ -88,16 +87,29 @@ public class ProfileFragment extends Fragment {
     }
 
     private void loadProfileData() {
-        FirebaseUser currentUser = mAuth.getCurrentUser();
-        if (currentUser == null) return;
+        UserInfo currentUser = authRepository.getCurrentUser();
+        if (currentUser == null) {
+            if (binding != null) {
+                binding.tvProfileStatPhotos.setText("—");
+                binding.tvProfileStatVideos.setText("—");
+                binding.tvProfileStatAlbums.setText("—");
+                binding.tvProfileStatFavorites.setText("—");
+            }
+            return;
+        }
 
         if (binding != null) {
             binding.tvEmail.setText(currentUser.getEmail());
-            binding.tvDisplayName.setText(currentUser.getDisplayName() != null ? currentUser.getDisplayName() : "Chưa đặt tên");
+            binding.tvProfileStatPhotos.setText("—");
+            binding.tvProfileStatVideos.setText("—");
+            binding.tvProfileStatAlbums.setText("—");
+            binding.tvProfileStatFavorites.setText("—");
+            String metaName = currentUser.getUserMetadata() != null ? currentUser.getUserMetadata().get("display_name") != null ? currentUser.getUserMetadata().get("display_name").toString() : null : null;
+            binding.tvDisplayName.setText(metaName != null ? metaName : "Thành viên");
         }
 
-        // Load profile from Firestore
-        repository.getUserProfile(currentUser.getUid(), new FirestoreRepository.RepositoryCallback<UserProfile>() {
+        // Load profile from Supabase
+        repository.getUserProfileAsync(currentUser.getId(), new PhotoRepository.Callback<UserProfile>() {
             @Override
             public void onSuccess(UserProfile profile) {
                 if (binding == null || !isAdded()) return;
@@ -108,6 +120,7 @@ public class ProfileFragment extends Fragment {
                     if (profile.getPhotoUrl() != null && !profile.getPhotoUrl().isEmpty() && getContext() != null) {
                         Glide.with(requireContext())
                                 .load(profile.getPhotoUrl())
+                                .circleCrop()
                                 .placeholder(R.drawable.ic_profile)
                                 .into(binding.imgAvatar);
                     }
@@ -119,21 +132,24 @@ public class ProfileFragment extends Fragment {
         });
 
         // Load stats
-        repository.getPhotos(currentUser.getUid(), new FirestoreRepository.RepositoryCallback<List<Photo>>() {
+        repository.getPhotosByUserAsync(currentUser.getId(), new PhotoRepository.Callback<List<Photo>>() {
             @Override
             public void onSuccess(List<Photo> photos) {
                 if (binding == null || !isAdded()) return;
                 int totalPhotos = 0;
+                int totalVideos = 0;
                 int favCount = 0;
                 if (photos != null) {
                     for (Photo p : photos) {
                         if (!p.isTrashed()) {
-                            totalPhotos++;
+                            if ("video".equalsIgnoreCase(p.getMediaType())) totalVideos++;
+                            else totalPhotos++;
                             if (p.isFavorite()) favCount++;
                         }
                     }
                 }
                 binding.tvProfileStatPhotos.setText(String.valueOf(totalPhotos));
+                binding.tvProfileStatVideos.setText(String.valueOf(totalVideos));
                 binding.tvProfileStatFavorites.setText(String.valueOf(favCount));
             }
 
@@ -141,7 +157,7 @@ public class ProfileFragment extends Fragment {
             public void onError(String error) {}
         });
 
-        repository.getAlbums(currentUser.getUid(), new FirestoreRepository.RepositoryCallback<List<Album>>() {
+        repository.getAlbumsAsync(currentUser.getId(), new PhotoRepository.Callback<List<Album>>() {
             @Override
             public void onSuccess(List<Album> albums) {
                 if (binding == null || !isAdded()) return;
@@ -154,36 +170,33 @@ public class ProfileFragment extends Fragment {
         });
     }
 
-    private void uploadAvatarToImgBB(Uri uri) {
-        FirebaseUser user = mAuth.getCurrentUser();
+    private void uploadAvatarToSupabase(Uri uri) {
+        UserInfo user = authRepository.getCurrentUser();
         if (user == null || getContext() == null) return;
 
         if (binding != null) {
             binding.progressBar.setVisibility(View.VISIBLE);
         }
-        Toast.makeText(getContext(), "Đang tải ảnh đại diện lên ImgBB...", Toast.LENGTH_SHORT).show();
+        Toast.makeText(getContext(), "Đang tải ảnh đại diện lên Supabase Storage...", Toast.LENGTH_SHORT).show();
 
-        uploadService.uploadImage(requireContext(), uri, new ImgBBUploadService.UploadCallback() {
+        String fileName = "avatar_" + user.getId() + "_" + System.currentTimeMillis() + ".jpg";
+        storageRepository.uploadImageAsync(requireContext(), uri, fileName, new StorageRepository.UploadCallback() {
             @Override
-            public void onSuccess(String imageUrl) {
-                // Update Firebase Auth profile
-                UserProfileChangeRequest profileUpdates = new UserProfileChangeRequest.Builder()
-                        .setPhotoUri(Uri.parse(imageUrl))
-                        .build();
-                user.updateProfile(profileUpdates);
-
-                // Update Firestore profile
+            public void onSuccess(String publicUrl) {
                 Map<String, Object> updates = new HashMap<>();
-                updates.put("photoUrl", imageUrl);
+                updates.put("photo_url", publicUrl);
 
-                repository.updateUserProfile(user.getUid(), updates, new FirestoreRepository.RepositoryCallback<Void>() {
+                repository.updateUserProfileAsync(
+                        user.getId(), updates, currentDisplayName(), safeUserEmail(user),
+                        new PhotoRepository.Callback<Void>() {
                     @Override
                     public void onSuccess(Void result) {
                         if (binding != null && isAdded() && getContext() != null) {
                             binding.progressBar.setVisibility(View.GONE);
                             Toast.makeText(getContext(), "Cập nhật ảnh đại diện thành công!", Toast.LENGTH_SHORT).show();
                             Glide.with(requireContext())
-                                    .load(imageUrl)
+                                    .load(publicUrl)
+                                            .circleCrop()
                                     .placeholder(R.drawable.ic_profile)
                                     .into(binding.imgAvatar);
                         }
@@ -193,24 +206,24 @@ public class ProfileFragment extends Fragment {
                     public void onError(String error) {
                         if (binding != null && isAdded() && getContext() != null) {
                             binding.progressBar.setVisibility(View.GONE);
-                            Toast.makeText(getContext(), "Lỗi cập nhật Firestore: " + error, Toast.LENGTH_SHORT).show();
+                            Toast.makeText(getContext(), "Lỗi cập nhật hồ sơ: " + error, Toast.LENGTH_SHORT).show();
                         }
                     }
-                });
+                        });
             }
 
             @Override
             public void onError(String error) {
                 if (binding != null && isAdded() && getContext() != null) {
                     binding.progressBar.setVisibility(View.GONE);
-                    Toast.makeText(getContext(), "Lỗi upload ImgBB: " + error, Toast.LENGTH_LONG).show();
+                    Toast.makeText(getContext(), "Lỗi upload ảnh đại diện: " + error, Toast.LENGTH_LONG).show();
                 }
             }
         });
     }
 
     private void showEditNameDialog() {
-        FirebaseUser user = mAuth.getCurrentUser();
+        UserInfo user = authRepository.getCurrentUser();
         if (user == null || getContext() == null) return;
 
         EditText input = new EditText(requireContext());
@@ -232,20 +245,17 @@ public class ProfileFragment extends Fragment {
                 .show();
     }
 
-    private void updateDisplayName(FirebaseUser user, String newName) {
+    private void updateDisplayName(UserInfo user, String newName) {
         if (binding != null) {
             binding.progressBar.setVisibility(View.VISIBLE);
         }
 
-        UserProfileChangeRequest profileUpdates = new UserProfileChangeRequest.Builder()
-                .setDisplayName(newName)
-                .build();
-        user.updateProfile(profileUpdates);
-
         Map<String, Object> updates = new HashMap<>();
-        updates.put("displayName", newName);
+        updates.put("display_name", newName);
 
-        repository.updateUserProfile(user.getUid(), updates, new FirestoreRepository.RepositoryCallback<Void>() {
+        repository.updateUserProfileAsync(
+                user.getId(), updates, newName, safeUserEmail(user),
+                new PhotoRepository.Callback<Void>() {
             @Override
             public void onSuccess(Void result) {
                 if (binding != null && isAdded()) {
@@ -262,7 +272,18 @@ public class ProfileFragment extends Fragment {
                     Toast.makeText(getContext(), "Lỗi: " + error, Toast.LENGTH_SHORT).show();
                 }
             }
-        });
+                });
+    }
+
+    private String currentDisplayName() {
+        if (binding == null || binding.tvDisplayName.getText() == null) return "Thành viên";
+        String name = binding.tvDisplayName.getText().toString().trim();
+        return name.isEmpty() ? "Thành viên" : name;
+    }
+
+    private String safeUserEmail(UserInfo user) {
+        String email = user.getEmail();
+        return email == null ? "" : email;
     }
 
     private void confirmLogout() {
@@ -271,13 +292,22 @@ public class ProfileFragment extends Fragment {
                 .setTitle(R.string.menu_logout)
                 .setMessage(R.string.confirm_logout)
                 .setPositiveButton(R.string.btn_ok, (dialog, which) -> {
-                    mAuth.signOut();
-                    Intent intent = new Intent(requireContext(), LoginActivity.class);
-                    intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-                    startActivity(intent);
-                    if (getActivity() != null) {
-                        getActivity().finish();
-                    }
+                    authRepository.signOutAsync(result -> {
+                        if (getActivity() == null) return;
+                        if (!result.getLocalSessionCleared()) {
+                            Toast.makeText(getContext(), "Không thể xóa phiên đăng nhập trên thiết bị. Thử lại.", Toast.LENGTH_LONG).show();
+                            return;
+                        }
+                        if (!result.getServerSignOutConfirmed()) {
+                            Toast.makeText(getContext(), "Đã đăng xuất khỏi thiết bị. Máy chủ chưa xác nhận thu hồi phiên.", Toast.LENGTH_LONG).show();
+                        }
+                        Intent intent = new Intent(getActivity(), LoginActivity.class);
+                        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                        startActivity(intent);
+                        if (getActivity() != null) {
+                            getActivity().finish();
+                        }
+                    });
                 })
                 .setNegativeButton(R.string.btn_cancel, null)
                 .show();

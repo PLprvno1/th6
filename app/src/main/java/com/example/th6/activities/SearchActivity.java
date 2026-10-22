@@ -11,11 +11,11 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.GridLayoutManager;
 
 import com.example.th6.adapters.PhotoAdapter;
-import com.example.th6.data.FirestoreRepository;
+import com.example.th6.data.AuthRepository;
+import com.example.th6.data.PhotoRepository;
 import com.example.th6.databinding.ActivitySearchBinding;
 import com.example.th6.models.Photo;
-import com.google.firebase.auth.FirebaseAuth;
-import com.google.firebase.auth.FirebaseUser;
+import io.github.jan.supabase.auth.user.UserInfo;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -24,8 +24,8 @@ public class SearchActivity extends AppCompatActivity implements PhotoAdapter.On
 
     private ActivitySearchBinding binding;
     private PhotoAdapter photoAdapter;
-    private FirestoreRepository repository;
-    private FirebaseAuth mAuth;
+    private PhotoRepository repository;
+    private AuthRepository authRepository;
 
     private List<Photo> allPhotos = new ArrayList<>();
     private List<Photo> searchResults = new ArrayList<>();
@@ -36,8 +36,8 @@ public class SearchActivity extends AppCompatActivity implements PhotoAdapter.On
         binding = ActivitySearchBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
 
-        mAuth = FirebaseAuth.getInstance();
-        repository = new FirestoreRepository();
+        authRepository = new AuthRepository();
+        repository = new PhotoRepository();
 
         setupRecyclerView();
         setupListeners();
@@ -68,10 +68,10 @@ public class SearchActivity extends AppCompatActivity implements PhotoAdapter.On
     }
 
     private void loadPhotos() {
-        FirebaseUser user = mAuth.getCurrentUser();
+        UserInfo user = authRepository.getCurrentUser();
         if (user == null) return;
 
-        repository.getPhotos(user.getUid(), new FirestoreRepository.RepositoryCallback<List<Photo>>() {
+        repository.getPhotosByUserAsync(user.getId(), new PhotoRepository.Callback<List<Photo>>() {
             @Override
             public void onSuccess(List<Photo> photos) {
                 allPhotos = photos != null ? photos : new ArrayList<>();
@@ -123,11 +123,11 @@ public class SearchActivity extends AppCompatActivity implements PhotoAdapter.On
 
     @Override
     public void onFavoriteToggle(Photo photo) {
-        FirebaseUser user = mAuth.getCurrentUser();
+        UserInfo user = authRepository.getCurrentUser();
         if (user == null) return;
 
         boolean newFav = !photo.isFavorite();
-        repository.toggleFavorite(user.getUid(), photo.getId(), newFav, new FirestoreRepository.RepositoryCallback<Void>() {
+        repository.toggleFavoriteAsync(user.getId(), photo.getId(), newFav, new PhotoRepository.Callback<Void>() {
             @Override
             public void onSuccess(Void result) {
                 photo.setFavorite(newFav);

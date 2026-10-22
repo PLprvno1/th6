@@ -9,9 +9,19 @@
         app:showAsAction="ifRoom" />
 
     <item
+        android:id="@+id/action_upload_photo"
+        android:title="Tải ảnh lên cloud"
+        app:showAsAction="never" />
+
+    <item
         android:id="@+id/action_backup"
         android:icon="@drawable/ic_library"
         android:title="@string/menu_backup"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_smart_cleanup"
+        android:title="@string/menu_smart_cleanup"
         app:showAsAction="never" />
 
     <item

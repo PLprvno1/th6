@@ -13,12 +13,13 @@ import androidx.work.Data;
 import androidx.work.Worker;
 import androidx.work.WorkerParameters;
 
-import com.example.th6.data.FirestoreRepository;
+import com.example.th6.data.AuthRepository;
+import com.example.th6.data.PhotoRepository;
+import com.example.th6.data.StorageRepository;
 import com.example.th6.models.LocalMediaPhoto;
 import com.example.th6.models.Photo;
 import com.example.th6.utils.BackupPreferences;
-import com.google.firebase.auth.FirebaseAuth;
-import com.google.firebase.auth.FirebaseUser;
+import io.github.jan.supabase.auth.user.UserInfo;
 
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
@@ -52,12 +53,13 @@ public class PhotoBackupWorker extends Worker {
         long runStartedAt = SystemClock.elapsedRealtime();
         Context context = getApplicationContext();
         String requestedUid = getInputData().getString("backup_uid");
-        FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
+        AuthRepository authRepository = new AuthRepository();
+        UserInfo user = authRepository.isLoggedIn() ? authRepository.getCurrentUser() : null;
         if (user == null) {
             if (requestedUid != null) BackupWorkScheduler.cancelPeriodic(context, requestedUid);
             return Result.success(output(0, 0, 0, "Bạn cần đăng nhập để backup."));
         }
-        String uid = user.getUid();
+        String uid = user.getId();
         if (requestedUid != null && !requestedUid.equals(uid)) {
             BackupWorkScheduler.cancelPeriodic(context, requestedUid);
             return Result.success(output(0, 0, 0, "Tài khoản đã thay đổi; bỏ qua lượt backup cũ."));
@@ -67,15 +69,17 @@ public class PhotoBackupWorker extends Worker {
             BackupWorkScheduler.cancelPeriodic(context, uid);
             return Result.success(output(0, 0, 0, "Backup đang tắt hoặc tạm dừng."));
         }
-        if (!hasImageReadPermission(context)) {
+        if (!hasAnyMediaReadPermission(context)) {
             return Result.success(output(0, 0, 0, "Chưa có quyền đọc ảnh; backup sẽ thử lại sau khi được cấp quyền."));
         }
 
         AtomicReference<List<LocalMediaPhoto>> pendingRef = new AtomicReference<>();
+        AtomicReference<PhotoBackupManager.BackupStats> statsRef = new AtomicReference<>();
         AtomicReference<String> scanError = new AtomicReference<>();
         CountDownLatch scanLatch = new CountDownLatch(1);
         new PhotoBackupManager().processBackupState(context, uid, new PhotoBackupManager.ManagerCallback() {
             @Override public void onStatsReady(PhotoBackupManager.BackupStats stats, List<LocalMediaPhoto> all) {
+                statsRef.set(stats);
                 pendingRef.set(stats.pendingPhotos);
                 scanLatch.countDown();
             }
@@ -84,6 +88,7 @@ public class PhotoBackupWorker extends Worker {
         if (!await(scanLatch, 45)) return Result.retry();
         if (scanError.get() != null) return Result.retry();
         List<LocalMediaPhoto> pending = pendingRef.get();
+        PhotoBackupManager.BackupStats initialStats = statsRef.get();
         if (!prefs.isBackupEnabled() || prefs.isPaused()) {
             BackupWorkScheduler.cancelPeriodic(context, uid);
             return Result.success(output(0, 0, pending == null ? 0 : pending.size(), "Backup đang tắt hoặc tạm dừng."));
@@ -93,87 +98,124 @@ public class PhotoBackupWorker extends Worker {
             return Result.success(output(0, 0, 0, "Không có ảnh cần backup."));
         }
 
-        ImgBBUploadService uploader = new ImgBBUploadService();
-        FirestoreRepository repository = new FirestoreRepository();
+        StorageRepository storageRepository = new StorageRepository();
+        PhotoRepository photoRepository = new PhotoRepository();
         BackupUploadLedger ledger = new BackupUploadLedger(context);
         String runKey = "run_" + uid + "_" + getId();
         android.content.SharedPreferences runPrefs = context.getSharedPreferences("photovault_backup_run_counts", Context.MODE_PRIVATE);
         int success = runPrefs.getInt(runKey, 0), failures = 0;
+        int imageSuccess = 0;
+        int videoSuccess = 0;
         boolean retryableFailure = false;
         String lastError = "";
 
         try {
             for (int index = 0; index < pending.size(); index++) {
                 if (isStopped() || Thread.currentThread().isInterrupted()) return Result.retry();
+                UserInfo activeUser = authRepository.isLoggedIn() ? authRepository.getCurrentUser() : null;
+                if (activeUser == null || !uid.equals(activeUser.getId())) {
+                    BackupWorkScheduler.cancelPeriodic(context, uid);
+                    return Result.success(output(success, failures, pending.size() - index,
+                            "Phiên hoặc tài khoản đã thay đổi; đã dừng backup để tránh dùng nhầm tài khoản."));
+                }
                 if (!prefs.isBackupEnabled() || prefs.isPaused()) {
                     BackupWorkScheduler.cancelPeriodic(context, uid);
                     runPrefs.edit().remove(runKey).apply();
                     return Result.success(output(success, failures, pending.size() - index, "Backup đã tạm dừng."));
                 }
-                if (!hasImageReadPermission(context)) {
+                LocalMediaPhoto local = pending.get(index);
+                if (!hasMediaReadPermission(context, local.isVideo())) {
                     if (success > 0) prefs.setLastSyncTime(System.currentTimeMillis());
                     runPrefs.edit().remove(runKey).apply();
                     return Result.success(output(success, failures, pending.size() - index,
                             "Quyền đọc ảnh đã bị thu hồi; các ảnh còn lại được giữ để thử lại sau."));
                 }
                 if (SystemClock.elapsedRealtime() - runStartedAt >= MAX_RUN_MILLIS) return Result.retry();
-                LocalMediaPhoto local = pending.get(index);
-                if (local.isVideo()) continue;
-                boolean hasUploadedImage = LocalMediaPhoto.STATUS_METADATA_PENDING.equals(local.getBackupStatus())
+                boolean hasUploadedObject = LocalMediaPhoto.STATUS_METADATA_PENDING.equals(local.getBackupStatus())
                         && local.getCloudUrl() != null && !local.getCloudUrl().isEmpty();
                 String url;
-                if (hasUploadedImage) {
+                String storagePath;
+                if (hasUploadedObject) {
                     url = local.getCloudUrl();
+                    storagePath = storageRepository.objectPathFromPublicUrl(url);
+                    if (storagePath.isEmpty()) storagePath = stableStoragePath(uid, local);
                 } else {
                     AtomicReference<String> uploadedUrl = new AtomicReference<>();
                     AtomicReference<String> uploadError = new AtomicReference<>();
-                    AtomicBoolean uploadRetryable = new AtomicBoolean(false);
                     CountDownLatch uploadLatch = new CountDownLatch(1);
-                    uploader.uploadImageWithRetry(context, Uri.parse(local.getContentUri()), new ImgBBUploadService.DetailedUploadCallback() {
-                        @Override public void onSuccess(String imageUrl) {
-                            // Persist immediately on callback so a Worker stop between the
-                            // network response and metadata write will resume without reupload.
+                    String fileName = stableStoragePath(uid, local);
+                    setUploadingProgress(index, pending.size(), success, failures, local, imageSuccess, videoSuccess);
+                    storageRepository.uploadMediaAsync(context, Uri.parse(local.getContentUri()), fileName,
+                            resolveMimeType(local), new StorageRepository.UploadCallback() {
+                        @Override public void onSuccess(String publicUrl) {
                             try (BackupUploadLedger callbackLedger = new BackupUploadLedger(context)) {
-                                callbackLedger.recordUpload(uid, local.getContentUri(), local.getDateModified(), imageUrl);
+                                callbackLedger.recordUpload(uid, local.getContentUri(), local.getDateModified(), publicUrl);
                             } catch (RuntimeException ignored) { }
-                            uploadedUrl.set(imageUrl);
+                            uploadedUrl.set(publicUrl);
                             uploadLatch.countDown();
                         }
-                        @Override public void onError(String error, boolean retryable) {
-                            uploadError.set(error); uploadRetryable.set(retryable); uploadLatch.countDown();
+                        @Override public void onError(String error) {
+                            uploadError.set(error);
+                            uploadLatch.countDown();
                         }
                     });
                     if (!await(uploadLatch, CALLBACK_TIMEOUT_SECONDS)) {
                         failures++; retryableFailure = true; lastError = "Hết thời gian upload: " + local.getDisplayName();
-                        setProgress(index + 1, pending.size(), success, failures);
+                        setProgress(index + 1, pending.size(), success, failures, imageSuccess, videoSuccess);
                         continue;
                     }
                     url = uploadedUrl.get();
+                    storagePath = fileName;
                     if (url == null) {
                         failures++;
-                        retryableFailure |= uploadRetryable.get();
-                        lastError = uploadError.get() == null ? "ImgBB không trả về URL ảnh." : uploadError.get();
-                        setProgress(index + 1, pending.size(), success, failures);
+                        retryableFailure = true;
+                        lastError = uploadError.get() == null ? "Supabase Storage không trả về URL ảnh." : uploadError.get();
+                        setProgress(index + 1, pending.size(), success, failures, imageSuccess, videoSuccess);
                         continue;
                     }
                     try {
                         ledger.recordUpload(uid, local.getContentUri(), local.getDateModified(), url);
-                    } catch (RuntimeException e) {
-                        // Do not discard a successful remote upload; the deterministic Firestore write remains safe to retry.
-                    }
+                    } catch (RuntimeException ignored) { }
                 }
 
-                Photo photo = new Photo(null, uid,
+                setUploadingProgress(index, pending.size(), success, failures, local, imageSuccess, videoSuccess);
+                Photo photo = new Photo(
+                        local.getCloudPhotoId() == null ? "" : local.getCloudPhotoId(),
+                        uid,
                         local.getDisplayName() != null ? local.getDisplayName() : "Photo_" + local.getMediaId(),
-                        url, System.currentTimeMillis());
-                photo.setLocalMediaId(local.getMediaId());
-                photo.setLocalMediaUri(local.getContentUri());
-                photo.setLocalDateModified(local.getDateModified());
-                photo.setContentHash(computeContentHash(context, Uri.parse(local.getContentUri())));
+                        url,
+                        url,
+                        System.currentTimeMillis(),
+                        local.isVideo() ? "video" : "image",
+                        false,
+                        false,
+                        0L,
+                        local.getMediaId(),
+                        local.getContentUri(),
+                        local.getDateModified(),
+                        java.util.Collections.emptyList(),
+                        "supabase",
+                        computeContentHash(context, Uri.parse(local.getContentUri())),
+                        storagePath
+                );
+                if (!prefs.isBackupEnabled() || prefs.isPaused()) {
+                    // The Storage object, if already uploaded, is recoverable from the
+                    // UID+URI ledger. Leave its metadata pending for a later enabled run.
+                    runPrefs.edit().remove(runKey).apply();
+                    if (success > 0) prefs.setLastSyncTime(System.currentTimeMillis());
+                    return Result.success(output(success, failures, pending.size() - index,
+                            "Backup Ä‘Ã£ táº¡m dá»«ng; media hiá»‡n táº¡i sáº½ Ä‘Æ°á»£c tiáº¿p tá»¥c sau."));
+                }
+                activeUser = authRepository.isLoggedIn() ? authRepository.getCurrentUser() : null;
+                if (activeUser == null || !uid.equals(activeUser.getId())) {
+                    // The Storage object is retained and the ledger can recover metadata on a later login.
+                    return Result.success(output(success, failures + 1, pending.size() - index,
+                            "Tài khoản đổi giữa lúc tải; metadata được giữ để thử lại sau."));
+                }
                 CountDownLatch metadataLatch = new CountDownLatch(1);
                 AtomicBoolean metadataSaved = new AtomicBoolean(false);
                 AtomicReference<String> metadataError = new AtomicReference<>();
-                repository.saveBackupPhoto(photo, new FirestoreRepository.RepositoryCallback<Void>() {
+                photoRepository.saveBackupPhotoAsync(photo, new PhotoRepository.Callback<Void>() {
                     @Override public void onSuccess(Void result) { metadataSaved.set(true); metadataLatch.countDown(); }
                     @Override public void onError(String error) { metadataError.set(error); metadataLatch.countDown(); }
                 });
@@ -182,12 +224,13 @@ public class PhotoBackupWorker extends Worker {
                 } else if (metadataSaved.get()) {
                     success++;
                     runPrefs.edit().putInt(runKey, success).apply();
+                    if (local.isVideo()) videoSuccess++; else imageSuccess++;
                     try { ledger.remove(uid, local.getContentUri()); } catch (RuntimeException ignored) { }
                 } else {
                     failures++; retryableFailure = true;
                     lastError = metadataError.get() == null ? "Không lưu được metadata." : metadataError.get();
                 }
-                setProgress(index + 1, pending.size(), success, failures);
+                setProgress(index + 1, pending.size(), success, failures, imageSuccess, videoSuccess);
             }
         } finally {
             ledger.close();
@@ -213,7 +256,9 @@ public class PhotoBackupWorker extends Worker {
         int remaining = Math.max(0, pending.size() - success - failures);
         if (await(finalScanLatch, 45) && finalStats.get() != null) remaining = finalStats.get().remainingCount;
         failures = remaining;
-        Data resultData = output(success, failures, remaining, lastError);
+        Data resultData = output(success, failures, remaining, lastError,
+                (initialStats == null ? 0 : initialStats.backedUpImages) + imageSuccess,
+                (initialStats == null ? 0 : initialStats.backedUpVideos) + videoSuccess);
         runPrefs.edit().remove(runKey).apply();
         return Result.success(resultData);
     }
@@ -238,6 +283,54 @@ public class PhotoBackupWorker extends Worker {
         }
     }
 
+    private String stableStoragePath(String uid, LocalMediaPhoto local) {
+        String identity = local.getContentUri() + "|" + local.getDateModified() + "|" + (local.isVideo() ? "video" : "image");
+        String hash;
+        try {
+            byte[] digest = java.security.MessageDigest.getInstance("SHA-256").digest(identity.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder out = new StringBuilder(64);
+            for (byte value : digest) out.append(String.format(java.util.Locale.US, "%02x", value & 0xff));
+            hash = out.toString();
+        } catch (Exception e) {
+            hash = java.util.UUID.nameUUIDFromBytes(identity.getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString().replace("-", "");
+        }
+        String mime = resolveMimeType(local);
+        String extension = "bin";
+        if (mime != null) {
+            if (mime.equalsIgnoreCase("image/jpeg")) extension = "jpg";
+            else if (mime.equalsIgnoreCase("image/png")) extension = "png";
+            else if (mime.equalsIgnoreCase("image/webp")) extension = "webp";
+            else if (mime.equalsIgnoreCase("image/gif")) extension = "gif";
+            else if (mime.equalsIgnoreCase("video/mp4")) extension = "mp4";
+            else if (mime.equalsIgnoreCase("video/quicktime")) extension = "mov";
+            else if (mime.equalsIgnoreCase("video/webm")) extension = "webm";
+            else if (mime.equalsIgnoreCase("video/3gpp")) extension = "3gp";
+        }
+        if (extension.equals("bin") && local.getDisplayName() != null) {
+            int dot = local.getDisplayName().lastIndexOf('.');
+            if (dot >= 0 && dot + 1 < local.getDisplayName().length()) {
+                String candidate = local.getDisplayName().substring(dot + 1).toLowerCase(java.util.Locale.US);
+                if (candidate.matches("[a-z0-9]{1,8}")) extension = candidate;
+            }
+        }
+        return uid + "/" + (local.isVideo() ? "videos/" : "photos/") + hash + "." + extension;
+    }
+
+    private String resolveMimeType(LocalMediaPhoto local) {
+        String mime = local.getMimeType();
+        if (mime != null && mime.contains("/")) return mime;
+        String name = local.getDisplayName();
+        if (name != null) {
+            int dot = name.lastIndexOf('.');
+            if (dot >= 0 && dot + 1 < name.length()) {
+                String inferred = android.webkit.MimeTypeMap.getSingleton()
+                        .getMimeTypeFromExtension(name.substring(dot + 1).toLowerCase(java.util.Locale.US));
+                if (inferred != null) return inferred;
+            }
+        }
+        return "application/octet-stream";
+    }
+
     private boolean hasImageReadPermission(Context context) {
         if (Build.VERSION.SDK_INT >= 34) {
             return ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED
@@ -248,13 +341,48 @@ public class PhotoBackupWorker extends Worker {
         return ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED;
     }
 
-    private void setProgress(int completed, int total, int success, int failures) {
+    private boolean hasMediaReadPermission(Context context, boolean video) {
+        if (Build.VERSION.SDK_INT >= 34 && ContextCompat.checkSelfPermission(context,
+                Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) == PackageManager.PERMISSION_GRANTED) return true;
+        if (Build.VERSION.SDK_INT >= 33) {
+            String permission = video ? Manifest.permission.READ_MEDIA_VIDEO : Manifest.permission.READ_MEDIA_IMAGES;
+            return ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED;
+        }
+        return ContextCompat.checkSelfPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private boolean hasAnyMediaReadPermission(Context context) {
+        if (Build.VERSION.SDK_INT >= 34
+                && ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) == PackageManager.PERMISSION_GRANTED) return true;
+        if (Build.VERSION.SDK_INT >= 33) {
+            return ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_IMAGES) == PackageManager.PERMISSION_GRANTED
+                    || ContextCompat.checkSelfPermission(context, Manifest.permission.READ_MEDIA_VIDEO) == PackageManager.PERMISSION_GRANTED;
+        }
+        return ContextCompat.checkSelfPermission(context, Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    private void setProgress(int completed, int total, int success, int failures, int images, int videos) {
         setProgressAsync(new Data.Builder().putInt("completed", completed).putInt("total", total)
-                .putInt("success", success).putInt("failures", failures).build());
+                .putInt("success", success).putInt("failures", failures).putInt("uploading", 0)
+                .putInt("uploaded_images", images).putInt("uploaded_videos", videos).build());
+    }
+
+    private void setUploadingProgress(int completed, int total, int success, int failures, LocalMediaPhoto media,
+                                     int images, int videos) {
+        setProgressAsync(new Data.Builder().putInt("completed", completed).putInt("total", total)
+                .putInt("success", success).putInt("failures", failures).putInt("uploading", 1)
+                .putInt("uploaded_images", images).putInt("uploaded_videos", videos)
+                .putString("current_name", media.getDisplayName()).putString("current_type", media.isVideo() ? "video" : "image").build());
     }
 
     private Data output(int success, int failures, int remaining, String error) {
         return new Data.Builder().putInt("success", success).putInt("failures", failures)
                 .putInt("remaining", remaining).putString("error", error).build();
+    }
+
+    private Data output(int success, int failures, int remaining, String error, int images, int videos) {
+        return new Data.Builder().putInt("success", success).putInt("failures", failures)
+                .putInt("remaining", remaining).putString("error", error)
+                .putInt("uploaded_images", images).putInt("uploaded_videos", videos).build();
     }
 }

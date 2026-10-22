@@ -10,16 +10,23 @@ import androidx.work.NetworkType;
 import androidx.work.OneTimeWorkRequest;
 import androidx.work.PeriodicWorkRequest;
 import androidx.work.WorkManager;
+import androidx.work.WorkInfo;
 
 import com.example.th6.utils.BackupPreferences;
+import com.example.th6.data.AuthRepository;
 
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ExecutionException;
+import java.util.List;
 
 /** Keeps one persistent, low-frequency scan schedule per signed-in account. */
 public final class BackupWorkScheduler {
     private static final long PERIOD_HOURS = 6;
     private static final String PERIODIC_PREFIX = "photovault_backup_periodic_";
     private static final String IMMEDIATE_PREFIX = "photovault_backup_immediate_";
+    private static final ExecutorService ENQUEUE_EXECUTOR = Executors.newSingleThreadExecutor();
 
     private BackupWorkScheduler() { }
 
@@ -47,25 +54,71 @@ public final class BackupWorkScheduler {
                 .build();
         workManager.enqueueUniquePeriodicWork(periodicName, ExistingPeriodicWorkPolicy.UPDATE, periodic);
 
-        if (scanNow) {
-            OneTimeWorkRequest immediate = new OneTimeWorkRequest.Builder(PhotoBackupWorker.class)
-                    .setInputData(backupInput(uid))
-                    .setConstraints(constraints)
-                    .setBackoffCriteria(androidx.work.BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
-                    .build();
-            workManager.enqueueUniqueWork(immediateWorkName(uid), ExistingWorkPolicy.KEEP, immediate);
-        }
+        if (scanNow) enqueueIfEligible(appContext, uid);
     }
 
-    public static void enqueueManual(Context context, String uid, boolean wifiOnly) {
-        if (context == null || uid == null || uid.isEmpty()) return;
+    /**
+     * Shared account-scoped backup trigger. A queued run already scans the current
+     * MediaStore state, so requests coalesce while it is waiting. If a run is active,
+     * one follow-up is appended; later requests coalesce behind that queued scan.
+     */
+    public static boolean enqueueIfEligible(Context context, String uid) {
+        if (context == null || uid == null || uid.isEmpty()) return false;
+        Context appContext = context.getApplicationContext();
+        AuthRepository authRepository = new AuthRepository();
+        if (!authRepository.isLoggedIn()) return false;
+        String activeUid = authRepository.getCurrentUserUid();
+        if (!uid.equals(activeUid)) return false;
+        BackupPreferences prefs = new BackupPreferences(appContext, uid);
+        if (!prefs.isBackupEnabled() || prefs.isPaused()) return false;
+
+        ENQUEUE_EXECUTOR.execute(() -> enqueueCoalesced(appContext, uid));
+        return true;
+    }
+
+    private static void enqueueCoalesced(Context context, String uid) {
+        AuthRepository authRepository = new AuthRepository();
+        if (!authRepository.isLoggedIn() || !uid.equals(authRepository.getCurrentUserUid())) return;
+        BackupPreferences prefs = new BackupPreferences(context, uid);
+        if (!prefs.isBackupEnabled() || prefs.isPaused()) return;
+
+        WorkManager workManager = WorkManager.getInstance(context);
+        String workName = immediateWorkName(uid);
+        boolean running = false;
+        boolean waiting = false;
+        try {
+            List<WorkInfo> infos = workManager.getWorkInfosForUniqueWork(workName).get();
+            for (WorkInfo info : infos) {
+                if (info.getState() == WorkInfo.State.RUNNING) running = true;
+                else if (info.getState() == WorkInfo.State.ENQUEUED || info.getState() == WorkInfo.State.BLOCKED) waiting = true;
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return;
+        } catch (ExecutionException | RuntimeException e) {
+            // If WorkManager state cannot be read, preserve the request with a serialized
+            // append rather than dropping a scan that may have arrived during a running job.
+            enqueueRequest(workManager, context, uid, prefs, ExistingWorkPolicy.APPEND_OR_REPLACE);
+            return;
+        }
+
+        if (waiting) return;
+        ExistingWorkPolicy policy = running ? ExistingWorkPolicy.APPEND_OR_REPLACE : ExistingWorkPolicy.KEEP;
+        enqueueRequest(workManager, context, uid, prefs, policy);
+    }
+
+    private static void enqueueRequest(WorkManager workManager, Context context, String uid,
+                                      BackupPreferences prefs, ExistingWorkPolicy policy) {
         OneTimeWorkRequest request = new OneTimeWorkRequest.Builder(PhotoBackupWorker.class)
                 .setInputData(backupInput(uid))
-                .setConstraints(createConstraints(wifiOnly))
+                .setConstraints(createConstraints(prefs.isWifiOnly()))
                 .setBackoffCriteria(androidx.work.BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
                 .build();
-        WorkManager.getInstance(context.getApplicationContext())
-                .enqueueUniqueWork(immediateWorkName(uid), ExistingWorkPolicy.KEEP, request);
+        try {
+            workManager.enqueueUniqueWork(immediateWorkName(uid), policy, request).getResult().get();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (ExecutionException | RuntimeException ignored) { }
     }
 
     public static void disable(Context context, String uid) {
