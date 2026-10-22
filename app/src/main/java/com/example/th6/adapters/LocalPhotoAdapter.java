@@ -152,13 +152,21 @@ public class LocalPhotoAdapter extends RecyclerView.Adapter<RecyclerView.ViewHol
                         .centerCrop().into(photoHolder.imgPhoto);
             } else if (cloudSource != null && !cloudSource.isEmpty()) {
                 // Glide's video-frame decoder handles local media URIs, but not a remote
-                // Storage URL. Extract a small frame off the UI thread for cloud-only videos.
+                // Storage URL. Extract a small frame and duration off the UI thread.
                 Glide.with(context).clear(photoHolder.imgPhoto);
                 photoHolder.imgPhoto.setImageResource(R.drawable.ic_photo_placeholder);
                 photoHolder.imgPhoto.setTag(cloudSource);
-                com.example.th6.utils.VideoThumbnailLoader.load(cloudSource, bitmap -> {
-                    if (bitmap != null && cloudSource.equals(photoHolder.imgPhoto.getTag())) {
+                if (photoHolder.tvDuration != null) photoHolder.tvDuration.setText("—:—");
+                com.example.th6.utils.VideoThumbnailLoader.load(cloudSource, (bitmap, durationMs) -> {
+                    if (!cloudSource.equals(photoHolder.imgPhoto.getTag())) return;
+                    if (bitmap != null) {
                         photoHolder.imgPhoto.setImageBitmap(bitmap);
+                    }
+                    if (durationMs > 0L) {
+                        photo.setDurationMs(durationMs);
+                        if (photoHolder.tvDuration != null) {
+                            photoHolder.tvDuration.setText(VideoDurationFormatter.formatDuration(durationMs));
+                        }
                     }
                 });
             } else {

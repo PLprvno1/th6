@@ -15,15 +15,21 @@ import java.util.concurrent.TimeUnit;
 
 /** Loads a small preview frame from a remote video URL without blocking a RecyclerView bind. */
 public final class VideoThumbnailLoader {
-    public interface Callback { void onLoaded(Bitmap bitmap); }
+    public interface Callback { void onLoaded(Bitmap bitmap, long durationMs); }
+
+    private static final class ThumbnailResult {
+        final Bitmap bitmap;
+        final long durationMs;
+        ThumbnailResult(Bitmap bitmap, long durationMs) { this.bitmap = bitmap; this.durationMs = durationMs; }
+    }
 
     private static final int FRAME_WIDTH = 512;
     private static final int FRAME_HEIGHT = 288;
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
-    private static final LruCache<String, Bitmap> CACHE = new LruCache<String, Bitmap>(
+    private static final LruCache<String, ThumbnailResult> CACHE = new LruCache<String, ThumbnailResult>(
             Math.max(1024, (int) (Runtime.getRuntime().maxMemory() / 16L / 1024L))) {
-        @Override protected int sizeOf(String key, Bitmap value) {
-            return Math.max(1, value.getByteCount() / 1024);
+        @Override protected int sizeOf(String key, ThumbnailResult value) {
+            return Math.max(1, value.bitmap == null ? 1 : value.bitmap.getByteCount() / 1024);
         }
     };
     private static final ThreadPoolExecutor EXECUTOR = new ThreadPoolExecutor(
@@ -37,43 +43,53 @@ public final class VideoThumbnailLoader {
 
     public static void load(String url, Callback callback) {
         if (url == null || url.isEmpty() || callback == null) return;
-        Bitmap cached;
+        ThumbnailResult cached;
         synchronized (CACHE) { cached = CACHE.get(url); }
-        if (cached != null && !cached.isRecycled()) {
-            Bitmap result = cached;
-            MAIN.post(() -> callback.onLoaded(result));
+        if (cached != null && (cached.bitmap == null || !cached.bitmap.isRecycled())) {
+            ThumbnailResult result = cached;
+            MAIN.post(() -> callback.onLoaded(result.bitmap, result.durationMs));
             return;
         }
         EXECUTOR.execute(() -> {
-            Bitmap frame = extract(url);
-            if (frame != null) synchronized (CACHE) { CACHE.put(url, frame); }
-            Bitmap result = frame;
-            MAIN.post(() -> callback.onLoaded(result));
+            ThumbnailResult result = extract(url);
+            if (result != null) synchronized (CACHE) { CACHE.put(url, result); }
+            MAIN.post(() -> callback.onLoaded(result == null ? null : result.bitmap,
+                    result == null ? 0L : result.durationMs));
         });
     }
 
-    private static Bitmap extract(String url) {
+    private static ThumbnailResult extract(String url) {
         MediaMetadataRetriever retriever = new MediaMetadataRetriever();
         try {
             Map<String, String> headers = Collections.emptyMap();
             retriever.setDataSource(url, headers);
-            Bitmap frame;
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                frame = retriever.getScaledFrameAtTime(1_000_000L,
-                        MediaMetadataRetriever.OPTION_CLOSEST_SYNC, FRAME_WIDTH, FRAME_HEIGHT);
-            } else {
-                frame = retriever.getFrameAtTime(1_000_000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
-                if (frame != null && (frame.getWidth() > FRAME_WIDTH || frame.getHeight() > FRAME_HEIGHT)) {
-                    float scale = Math.min(FRAME_WIDTH / (float) frame.getWidth(),
-                            FRAME_HEIGHT / (float) frame.getHeight());
-                    Bitmap scaled = Bitmap.createScaledBitmap(frame,
-                            Math.max(1, Math.round(frame.getWidth() * scale)),
-                            Math.max(1, Math.round(frame.getHeight() * scale)), true);
-                    if (scaled != frame) frame.recycle();
-                    frame = scaled;
-                }
+            long durationMs = 0L;
+            String rawDuration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
+            if (rawDuration != null) {
+                try { durationMs = Math.max(0L, Long.parseLong(rawDuration)); }
+                catch (NumberFormatException ignored) { }
             }
-            return frame;
+            Bitmap frame = null;
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    frame = retriever.getScaledFrameAtTime(1_000_000L,
+                            MediaMetadataRetriever.OPTION_CLOSEST_SYNC, FRAME_WIDTH, FRAME_HEIGHT);
+                } else {
+                    frame = retriever.getFrameAtTime(1_000_000L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC);
+                    if (frame != null && (frame.getWidth() > FRAME_WIDTH || frame.getHeight() > FRAME_HEIGHT)) {
+                        float scale = Math.min(FRAME_WIDTH / (float) frame.getWidth(),
+                                FRAME_HEIGHT / (float) frame.getHeight());
+                        Bitmap scaled = Bitmap.createScaledBitmap(frame,
+                                Math.max(1, Math.round(frame.getWidth() * scale)),
+                                Math.max(1, Math.round(frame.getHeight() * scale)), true);
+                        if (scaled != frame) frame.recycle();
+                        frame = scaled;
+                    }
+                }
+            } catch (Exception | OutOfMemoryError ignored) {
+                // Keep the duration even when a codec cannot provide a preview frame.
+            }
+            return new ThumbnailResult(frame, durationMs);
         } catch (Exception | OutOfMemoryError ignored) {
             return null;
         } finally {
